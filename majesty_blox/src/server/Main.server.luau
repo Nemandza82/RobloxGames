@@ -31,8 +31,11 @@ local startMap = newRemote("RemoteFunction", "StartMap")
 local returnToMenu = newRemote("RemoteFunction", "ReturnToMenu")
 local placeBuilding = newRemote("RemoteFunction", "PlaceBuilding")
 local performAction = newRemote("RemoteFunction", "PerformAction")
+local placeExploreFlag = newRemote("RemoteFunction", "PlaceExploreFlag")
+local getFog = newRemote("RemoteFunction", "GetFog")
 local notifyRemote = newRemote("RemoteEvent", "Notify")
 local effectRemote = newRemote("RemoteEvent", "Effect")
+local fogRemote = newRemote("RemoteEvent", "Fog")
 remotes.Parent = ReplicatedStorage
 
 local sessions: { [Player]: any } = {}
@@ -44,6 +47,9 @@ local messaging = {
 	end,
 	effect = function(player: Player, kind: string, ...)
 		effectRemote:FireClient(player, kind, ...)
+	end,
+	fog = function(player: Player, mapToken: number, cells: { number })
+		fogRemote:FireClient(player, mapToken, cells)
 	end,
 }
 
@@ -131,13 +137,30 @@ placeBuilding.OnServerInvoke = function(player, kind, position)
 	end)
 end
 
-performAction.OnServerInvoke = function(player, target, actionId)
+performAction.OnServerInvoke = function(player, target, actionId, amount)
 	if typeof(target) ~= "Instance" or typeof(actionId) ~= "string" then
 		return false, "Invalid request"
 	end
 	return withKingdom(player, function(kingdom)
-		return kingdom:tryAction(target, actionId)
+		return kingdom:tryAction(target, actionId, amount)
 	end)
+end
+
+placeExploreFlag.OnServerInvoke = function(player, position)
+	if typeof(position) ~= "Vector3" then
+		return false, "Invalid request"
+	end
+	return withKingdom(player, function(kingdom)
+		return kingdom:tryPlaceExploreFlag(position)
+	end)
+end
+
+getFog.OnServerInvoke = function(player)
+	local session = sessions[player]
+	if not session then
+		return 0, {}
+	end
+	return session:getFog()
 end
 
 RunService.Heartbeat:Connect(function(dt)

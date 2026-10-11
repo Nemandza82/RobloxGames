@@ -6,13 +6,28 @@ local Config = {}
 -- Map
 Config.GRID = 4
 Config.BUILD_GAP = 2
-Config.MAX_MAP_SIZE = 280 -- player plots are 300 studs apart
+Config.PLOT_SPACING = 600 -- distance between player plots on a server
+Config.MAX_MAP_SIZE = 560
+Config.BUILD_RADIUS = 70 -- buildings must be placed within this distance of the castle (maps can override)
+
+-- Fog of war
+Config.Fog = {
+	CellSize = 10,
+	UpdateInterval = 0.25,
+	Height = 18, -- tall enough to hide trees and dens
+	CastleSight = 60,
+	BuildingSight = 28,
+	HeroSight = 26,
+	FlagSight = 12,
+}
 
 -- Economy
 Config.DEFAULT_STARTING_GOLD = 300
 Config.INCOME_PER_SECOND = 3
 Config.KILL_REWARD_KINGDOM = 5
-Config.BOUNTY_AMOUNT = 50
+Config.BOUNTY_AMOUNTS = { 25, 50, 100, 200, 400 } -- reward choices in the selection panel
+Config.DEFAULT_BOUNTY = 50
+Config.EXPLORE_REACH = 4 -- a hero this close to an explore flag claims it
 
 Config.Buildings = {
 	Castle = {
@@ -63,6 +78,7 @@ Config.HERO_LEVEL_DAMAGE = 3
 Config.HERO_RETREAT_FRACTION = 0.3
 Config.HERO_HEAL_PER_SECOND = 15
 Config.HERO_WANDER_RADIUS = 40
+Config.BOUNTY_DISTANCE_BIAS = 60 -- heroes pick the bounty with the best reward / (distance + bias)
 
 Config.Enemies = {
 	Goblin = {
@@ -76,7 +92,20 @@ Config.Enemies = {
 		GoldReward = 10,
 		Actions = { "PlaceBounty" },
 	},
+	Wolf = {
+		DisplayName = "Wolf",
+		MaxHealth = 28,
+		Damage = 5,
+		AttackRange = 2.5,
+		AttackCooldown = 0.9,
+		Speed = 14,
+		AggroRange = 32,
+		GoldReward = 8,
+		Actions = { "PlaceBounty" },
+	},
 }
+
+Config.DEN_DEFENSE_SPAWN_DELAY = 3 -- a den under attack spawns its next monster within this many seconds
 
 -- Defaults for dens; each den in a map can override any of these.
 Config.DenDefaults = {
@@ -94,6 +123,7 @@ Config.DenDefaults = {
 -- Actions shown in the selection panel. Which kinds offer which action is set by the
 -- `Actions` list on each building / enemy / den definition above.
 -- Server handlers live in server/ActionHandlers.luau.
+-- VariableCost actions take the amount chosen by the player (one of BOUNTY_AMOUNTS).
 Config.Actions = {
 	RecruitWarrior = {
 		DisplayName = "Recruit Warrior",
@@ -101,16 +131,30 @@ Config.Actions = {
 		Cost = 60,
 	},
 	PlaceBounty = {
-		DisplayName = "Place Bounty",
-		Description = "Reward heroes for defeating this target.",
-		Cost = Config.BOUNTY_AMOUNT,
+		DisplayName = "Add Reward",
+		Description = "Bigger rewards attract heroes from farther away.",
+		VariableCost = true,
 	},
 }
 
--- Map decoration that blocks building and movement.
+-- Explore flag: planted from the build bar for InitialReward gold; select it to raise the reward.
+Config.ExploreFlag = {
+	DisplayName = "Explore Flag",
+	InitialReward = 50,
+	Actions = { "PlaceBounty" },
+}
+
+-- Map features that block building and movement (footprint size; radius is derived from it).
 Config.Obstacles = {
 	Tree = { Size = Vector3.new(6, 13, 6) },
+	Pine = { Size = Vector3.new(6, 16, 6) },
 	Rock = { Size = Vector3.new(8, 5, 8) },
+	Pond = { Size = Vector3.new(22, 1, 22) },
+	Ruins = { Size = Vector3.new(14, 6, 14) },
 }
+
+function Config.isBountyAmount(amount: any): boolean
+	return typeof(amount) == "number" and table.find(Config.BOUNTY_AMOUNTS, amount) ~= nil
+end
 
 return Config

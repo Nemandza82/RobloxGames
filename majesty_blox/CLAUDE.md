@@ -39,12 +39,34 @@ Heroes belong to the guild that recruited them (`hero.home`), which caps them pe
 
 A map is a folder `src/server/Maps/<Id>/` whose `Map.luau` returns a table:
 data (`DisplayName`, `Description`, `Objective`, `Size` (Vector2), `StartingGold`, `Castle`,
-`Dens`, `Obstacles`, optional `VictoryText`/`DefeatText`/`GroundColor`) plus optional hooks
-(`onStart`, `onUpdate`, `onEntityKilled`, `onBuildingPlaced`, `onHeroRecruited`, `onFinished`,
-`checkVictory`). Hooks get a `MapContext`; positions in map data and the context are relative
-to the plot center. Hooks run under `pcall`. Default victory: all dens destroyed; defeat: castle
-destroyed. To add a map: create the folder and add its id to `Campaign.luau`.
-Max map size is `Config.MAX_MAP_SIZE` (plots are 300 studs apart).
+`Dens`, `Obstacles`, `Decor`, optional `BuildRadius`, `FogOfWar = false`, `VictoryText`,
+`DefeatText`, `GroundColor`) plus optional hooks (`onStart`, `onUpdate`, `onEntityKilled`,
+`onBuildingPlaced`, `onHeroRecruited`, `onFinished`, `checkVictory`). Hooks get a `MapContext`;
+positions in map data and the context are relative to the plot center. Hooks run under `pcall`.
+Default victory: all dens destroyed; defeat: castle destroyed. To add a map: create the folder
+and add its id to `Campaign.luau`. Max map size is `Config.MAX_MAP_SIZE` (plots are
+`Config.PLOT_SPACING` apart).
+
+`Maps/MapKit.luau` builds layouts (seeded): `keepClear` / `keepClearLine` keep the build area
+and paths to dens open, then `forest`, `cluster`, `line`, `add` (obstacles: Tree, Pine, Rock,
+Pond, Ruins) and `road`, `patch`, `scatter`, `decorate` (decor: Road, Patch, Bush, Flowers).
+Decor is visual only (no collision); obstacles block movement and building.
+Den entries can set `Enemy` (Goblin, Wolf), `DisplayName`, spawn values and `Discovered = true`.
+
+## Fog of war & exploring
+
+- `server/FogOfWar.luau` keeps a cell grid (`Config.Fog.CellSize`): explored cells stay revealed,
+  visible cells are inside a sight radius (castle, buildings, heroes) right now.
+- Enemies outside sight and undiscovered dens are parented to `ServerStorage.Hidden_<UserId>`,
+  so they never replicate (no client-side cheating). Dens stay visible once discovered.
+- The client draws fog (`client/FogRenderer.luau`): full state via `GetFog`, increments via the
+  `Fog` remote, both tagged with the `MapToken` attribute so stale updates are ignored.
+- Explore flags (`PlaceExploreFlag`, category `"Flag"`, `noCollide`) are bounties on a spot:
+  a hero who reaches it claims the reward. Heroes pick bounties by reward / (distance + bias).
+- Bounty / explore rewards come from the HUD stepper (`Config.BOUNTY_AMOUNTS`), sent as the
+  amount for VariableCost actions and validated on the server.
+- Buildings must be within the build radius of the castle (`BuildRules.inBuildRadius`,
+  `BuildRadius` attribute); a green ring shows it while placing.
 
 ## Key decisions
 
@@ -64,8 +86,8 @@ Max map size is `Config.MAX_MAP_SIZE` (plots are 300 studs apart).
 - Buttons the player can't afford are disabled (ignore clicks) in both the build bar and the
   selection panel. Buildings with `Range` show a `RangeRing` while placing and when selected.
 - Remotes in `ReplicatedStorage.Remotes`: `GetCampaign`, `NewCampaign`, `StartMap`,
-  `ReturnToMenu`, `PlaceBuilding`, `PerformAction` (RemoteFunctions), `Notify` and `Effect`
-  (RemoteEvents).
+  `ReturnToMenu`, `PlaceBuilding`, `PerformAction`, `PlaceExploreFlag`, `GetFog`
+  (RemoteFunctions), `Notify`, `Effect` and `Fog` (RemoteEvents).
 - DataStore only works in a published place; in Studio progress is memory-only (expected warning).
 - Dev aid: `workspace:SetAttribute("DevUnlockAll", true)` in Edit mode unlocks all maps,
   Studio only. Remove it after testing so it isn't saved into the place.

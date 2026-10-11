@@ -28,9 +28,10 @@ function RangeRing:show(position: Vector3?, radius: number?)
 		self.part.Parent = nil
 		return
 	end
-	-- Cylinders extend along X, so lay it flat by rotating around Z
-	self.part.Size = Vector3.new(0.2, radius * 2, radius * 2)
-	self.part.CFrame = CFrame.new(position + Vector3.new(0, 0.15, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	-- Cylinders extend along X, so lay it flat by rotating around Z.
+	-- Raised clear of the ground, roads and patches (top ~0.2) to avoid z-fighting.
+	self.part.Size = Vector3.new(0.1, radius * 2, radius * 2)
+	self.part.CFrame = CFrame.new(position + Vector3.new(0, 0.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
 	self.part.Parent = Workspace
 end
 

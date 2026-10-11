@@ -6,7 +6,7 @@ local Workspace = game:GetService("Workspace")
 
 local PITCH = math.rad(55)
 local MIN_ZOOM = 40
-local MAX_ZOOM = 180
+local MAX_ZOOM = 240
 local ZOOM_STEP = 10
 local PAN_SPEED = 0.9 -- multiplied by zoom, so panning feels the same at any height
 

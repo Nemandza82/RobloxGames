@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local CameraController = require(script.Parent.CameraController)
 local Effects = require(script.Parent.Effects)
+local FogRenderer = require(script.Parent.FogRenderer)
 local Menu = require(script.Parent.Menu)
 local Placement = require(script.Parent.Placement)
 local Selection = require(script.Parent.Selection)
@@ -23,8 +24,8 @@ end
 
 hud = UI.new(function(action)
 	selection:clear()
-	if action == "Bounty" then
-		placement:startBounty()
+	if action == "Explore" then
+		placement:startExplore()
 	else
 		placement:startBuild(action)
 	end
@@ -44,6 +45,27 @@ placement = Placement.new(remotes, {
 		selection:clear()
 	end,
 })
+
+local fog = FogRenderer.new()
+
+-- Builds the fog for the new map, then fetches everything explored so far.
+-- Incremental updates (Fog remote) are tagged with MapToken so stale ones are ignored.
+local function startFog(origin: Vector3, size: Vector2)
+	fog:setMap(origin, size, player:GetAttribute("FogCellSize") or 0)
+	local token = player:GetAttribute("MapToken")
+	task.spawn(function()
+		local serverToken, cells = remotes.GetFog:InvokeServer()
+		if serverToken == token and player:GetAttribute("MapToken") == token then
+			fog:reveal(cells)
+		end
+	end)
+end
+
+remotes.Fog.OnClientEvent:Connect(function(token, cells)
+	if token == player:GetAttribute("MapToken") then
+		fog:reveal(cells)
+	end
+end)
 
 local menu = Menu.new({
 	getCampaign = function()
@@ -76,6 +98,7 @@ local function onPhaseChanged()
 		local size = player:GetAttribute("PlotSize")
 		CameraController.setMap(origin, size)
 		CameraController.setPanEnabled(true)
+		startFog(origin, size)
 		placement:setMap(origin, size)
 		placement:setEnabled(true)
 		refreshObjective()
@@ -89,6 +112,7 @@ local function onPhaseChanged()
 	CameraController.setPanEnabled(false)
 	if phase == "Menu" then
 		hud:setVisible(false)
+		fog:clear()
 		menu:showMain()
 	elseif phase == "Victory" or phase == "Defeat" or phase == "CampaignComplete" then
 		menu:showResult(phase, player:GetAttribute("ResultText"), player:GetAttribute("MapIndex"))

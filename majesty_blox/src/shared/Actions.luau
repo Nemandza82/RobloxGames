@@ -10,6 +10,8 @@ function Actions.forKind(kind: string): { string }
 	local def = Config.Buildings[kind] or Config.Enemies[kind] or Config.Heroes[kind]
 	if not def and kind == "Den" then
 		def = Config.DenDefaults
+	elseif not def and kind == "ExploreFlag" then
+		def = Config.ExploreFlag
 	end
 	return def and def.Actions or EMPTY
 end

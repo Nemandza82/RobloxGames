@@ -67,6 +67,8 @@ function Selection.new(remotes: Folder, toast)
 	self.toast = toast
 	self.selected = nil
 	self.buttons = {}
+	-- Reward chosen with the panel's stepper; kept between selections
+	self.rewardIndex = table.find(Config.BOUNTY_AMOUNTS, Config.DEFAULT_BOUNTY) or 1
 
 	local gui = make("ScreenGui", {
 		Name = "SelectionHUD",
@@ -127,8 +129,59 @@ function Selection.new(remotes: Folder, toast)
 
 	self.infoLabel = textLabel(panel, 4, 14, Color3.fromRGB(220, 220, 230), Enum.Font.Gotham)
 
-	self.actionsFrame = make("Frame", {
+	-- Reward stepper, shown only when the selection offers a VariableCost action (bounties)
+	local stepper = make("Frame", {
+		Name = "RewardStepper",
 		LayoutOrder = 5,
+		Size = UDim2.new(1, 0, 0, 30),
+		BackgroundTransparency = 1,
+		Visible = false,
+		Parent = panel,
+	})
+	make("TextLabel", {
+		Size = UDim2.new(0, 80, 1, 0),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamBold,
+		TextSize = 14,
+		TextColor3 = MUTED,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Text = "Reward",
+		Parent = stepper,
+	})
+	-- rightOffset: distance from the panel's right edge
+	local function stepButton(text: string, rightOffset: number, delta: number)
+		local button = make("TextButton", {
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -rightOffset, 0, 0),
+			Size = UDim2.fromOffset(30, 30),
+			BackgroundColor3 = BUTTON,
+			Font = Enum.Font.GothamBold,
+			TextSize = 18,
+			TextColor3 = WHITE,
+			Text = text,
+			Parent = stepper,
+		}, { corner(6) })
+		button.Activated:Connect(function()
+			self.rewardIndex = math.clamp(self.rewardIndex + delta, 1, #Config.BOUNTY_AMOUNTS)
+			self:_refresh()
+		end)
+	end
+	self.rewardLabel = make("TextLabel", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -34, 0, 0),
+		Size = UDim2.fromOffset(60, 30),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamBold,
+		TextSize = 16,
+		TextColor3 = Color3.fromRGB(255, 210, 80),
+		Parent = stepper,
+	})
+	stepButton("+", 0, 1)
+	stepButton("-", 98, -1)
+	self.stepper = stepper
+
+	self.actionsFrame = make("Frame", {
+		LayoutOrder = 6,
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
@@ -215,7 +268,8 @@ function Selection:select(model: Model?)
 			if not target or not entry.enabled then
 				return
 			end
-			local _, message = self.remotes.PerformAction:InvokeServer(target, actionId)
+			local amount = if def.VariableCost then self:getRewardAmount() else nil
+			local _, message = self.remotes.PerformAction:InvokeServer(target, actionId, amount)
 			self.toast(message)
 			self:_refresh()
 		end)
@@ -230,6 +284,11 @@ end
 
 function Selection:clear()
 	self:select(nil)
+end
+
+-- The reward chosen with the stepper (one of Config.BOUNTY_AMOUNTS).
+function Selection:getRewardAmount(): number
+	return Config.BOUNTY_AMOUNTS[self.rewardIndex]
 end
 
 local function describe(model: Model, kind: string): (string, string)
@@ -251,6 +310,8 @@ local function describe(model: Model, kind: string): (string, string)
 			model:GetAttribute("Damage") or 0,
 			model:GetAttribute("Gold") or 0
 		)
+	elseif kind == "ExploreFlag" then
+		return "Flag", string.format('Heroes who reach this spot earn the reward.\n<font color="#FFD250">Reward: %dg</font>', bounty)
 	elseif kind == "Den" then
 		return "Enemy lair", "Spawns monsters until destroyed.\n" .. bountyLine
 	elseif Config.Enemies[kind] then
@@ -281,11 +342,19 @@ function Selection:_refresh()
 		self.healthText.Text = string.format("%d / %d", health, maxHealth)
 	end
 
+	local hasVariableCost = false
+	for _, entry in self.buttons do
+		hasVariableCost = hasVariableCost or entry.def.VariableCost == true
+	end
+	self.stepper.Visible = hasVariableCost
+	self.rewardLabel.Text = string.format("%dg", self:getRewardAmount())
+
 	local gold = player:GetAttribute("Gold") or 0
 	for _, entry in self.buttons do
 		local def = entry.def
-		local enabled = gold >= def.Cost
-		local status = string.format('<font color="#FFD250">%dg</font>', def.Cost)
+		local cost = if def.VariableCost then self:getRewardAmount() else def.Cost
+		local enabled = gold >= cost
+		local status = string.format('<font color="#FFD250">%dg</font>', cost)
 		if entry.actionId == "RecruitWarrior" and (model:GetAttribute("Heroes") or 0) >= (model:GetAttribute("HeroCapacity") or 0) then
 			enabled = false
 			status = '<font color="#FF8070">Guild full</font>'

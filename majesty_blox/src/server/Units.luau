@@ -24,15 +24,19 @@ local function lerp(a: number, b: number, t: number): number
 end
 
 -- Weapon angle (degrees) at swing progress t (0..1), or the resting angle when not swinging.
-local function weaponAngle(idle: number, t: number?): number
+-- A weapon can override the swing range with `raised` / `low` (e.g. a wolf's bite is smaller).
+local function weaponAngle(weapon, t: number?): number
+	local idle = weapon.idleAngle
+	local raised = weapon.raised or SWING_RAISED
+	local low = weapon.low or SWING_LOW
 	if not t then
 		return idle
 	elseif t < 0.3 then
-		return lerp(idle, SWING_RAISED, t / 0.3)
+		return lerp(idle, raised, t / 0.3)
 	elseif t < SWING_IMPACT then
-		return lerp(SWING_RAISED, SWING_LOW, (t - 0.3) / (SWING_IMPACT - 0.3))
+		return lerp(raised, low, (t - 0.3) / (SWING_IMPACT - 0.3))
 	else
-		return lerp(SWING_LOW, idle, (t - SWING_IMPACT) / (1 - SWING_IMPACT))
+		return lerp(low, idle, (t - SWING_IMPACT) / (1 - SWING_IMPACT))
 	end
 end
 
@@ -47,7 +51,7 @@ function Units.place(unit)
 	if weapon then
 		weapon.part.CFrame = pivot
 			* CFrame.new(weapon.hand)
-			* CFrame.Angles(math.rad(weaponAngle(weapon.idleAngle, t)), 0, 0)
+			* CFrame.Angles(math.rad(weaponAngle(weapon, t)), 0, 0)
 			* CFrame.new(weapon.blade)
 	end
 end
@@ -87,7 +91,7 @@ end
 local function resolveOverlaps(kingdom, unit): Vector3
 	local pos = unit.pos
 	for _, other in kingdom.entities do
-		if other ~= unit and other.alive then
+		if other ~= unit and other.alive and not other.noCollide then
 			local delta = flat(pos - other.pos)
 			local dist = delta.Magnitude
 			local minDist = unit.radius + other.radius
@@ -151,18 +155,23 @@ local function engage(kingdom, unit, target, dt: number)
 	end
 end
 
+-- Best bounty (attack target or explore flag) by reward / (distance + bias), so a bigger
+-- reward pulls heroes from further away.
 local function findBountyTarget(kingdom, hero)
-	local best, bestDist = nil, math.huge
+	local best, bestScore = nil, 0
 	for _, e in kingdom.entities do
 		if e.alive and e.bounty > 0 then
 			local dist = flat(e.pos - hero.pos).Magnitude
-			if dist < bestDist then
-				best, bestDist = e, dist
+			local score = e.bounty / (dist + Config.BOUNTY_DISTANCE_BIAS)
+			if score > bestScore then
+				best, bestScore = e, score
 			end
 		end
 	end
 	return best
 end
+
+local SELF_DEFENSE_RANGE = 10
 
 function Units.updateHero(kingdom, hero, dt: number)
 	hero.cooldown = math.max(0, hero.cooldown - dt)
@@ -192,12 +201,25 @@ function Units.updateHero(kingdom, hero, dt: number)
 		end
 	end
 
-	-- Bounties first, then whatever enemy is close
-	local target = findBountyTarget(kingdom, hero)
-	if not target then
-		target = kingdom:findNearest(hero.pos, hero.aggroRange, function(e)
-			return e.side == "Enemy"
-		end)
+	local function isEnemy(e)
+		return e.side == "Enemy"
+	end
+	local function isMonster(e)
+		return e.category == "Enemy"
+	end
+
+	-- Fight back against monsters right next to us, then chase bounties, then nearby enemies
+	local target = kingdom:findNearest(hero.pos, SELF_DEFENSE_RANGE, isMonster)
+		or findBountyTarget(kingdom, hero)
+		or kingdom:findNearest(hero.pos, hero.aggroRange, isEnemy)
+
+	if target and target.category == "Flag" then
+		hero.state = "Explore"
+		local dist = moveToward(kingdom, hero, target.pos, 1, dt)
+		if dist <= Config.EXPLORE_REACH then
+			kingdom:claimFlag(target, hero)
+		end
+		return
 	end
 	if target then
 		hero.state = "Fight"

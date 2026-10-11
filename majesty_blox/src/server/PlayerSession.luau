@@ -4,21 +4,26 @@
 -- Player attributes set here (read by the client):
 --   Phase        "Menu" | "Playing" | "Victory" | "Defeat" | "CampaignComplete"
 --   MapIndex, MapName, Objective, ResultText, PlotOrigin (Vector3), PlotSize (Vector2)
+--   MapToken     increases every time a map starts (tags fog updates for that map)
+-- Kingdom also sets CastlePos, BuildRadius and FogCellSize.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
+local Config = require(ReplicatedStorage.Shared.Config)
 local Campaign = require(script.Parent.Campaign)
 local Kingdom = require(script.Parent.Kingdom)
 local Progress = require(script.Parent.Progress)
 
+local S = Config.PLOT_SPACING
 local PLOT_ORIGINS = {
 	Vector3.new(0, 0, 0),
-	Vector3.new(300, 0, 0),
-	Vector3.new(-300, 0, 0),
-	Vector3.new(0, 0, 300),
-	Vector3.new(300, 0, 300),
-	Vector3.new(-300, 0, 300),
+	Vector3.new(S, 0, 0),
+	Vector3.new(-S, 0, 0),
+	Vector3.new(0, 0, S),
+	Vector3.new(S, 0, S),
+	Vector3.new(-S, 0, S),
 }
 
 local PlayerSession = {}
@@ -37,6 +42,7 @@ end
 
 -- messaging.notify(player, text) sends a toast message to the player.
 -- messaging.effect(player, kind, ...) plays a visual effect on the player's client.
+-- messaging.fog(player, mapToken, cells) sends newly explored fog cells.
 function PlayerSession.new(player: Player, slot: number, messaging)
 	local self = setmetatable({}, PlayerSession)
 	self.player = player
@@ -44,6 +50,7 @@ function PlayerSession.new(player: Player, slot: number, messaging)
 	self.messaging = messaging
 	self.kingdom = nil
 	self.mapIndex = nil
+	self.mapToken = 0
 
 	self.folder = Instance.new("Folder")
 	self.folder.Name = tostring(player.UserId)
@@ -86,6 +93,9 @@ function PlayerSession:startMap(index: number): (boolean, string)
 	self.mapIndex = index
 
 	local player = self.player
+	self.mapToken += 1
+	local token = self.mapToken
+	player:SetAttribute("MapToken", token)
 	player:SetAttribute("MapIndex", index)
 	player:SetAttribute("MapName", map.DisplayName)
 	player:SetAttribute("Objective", map.Objective or "")
@@ -98,6 +108,9 @@ function PlayerSession:startMap(index: number): (boolean, string)
 		effect = function(kind, ...)
 			self.messaging.effect(player, kind, ...)
 		end,
+		fog = function(cells)
+			self.messaging.fog(player, token, cells)
+		end,
 		onFinished = function(result, text)
 			self:_onFinished(result, text)
 		end,
@@ -105,6 +118,14 @@ function PlayerSession:startMap(index: number): (boolean, string)
 	-- Phase last: the client reads the other attributes when the phase changes
 	player:SetAttribute("Phase", "Playing")
 	return true, map.DisplayName
+end
+
+-- Full fog state for the current map: (mapToken, explored cell indices).
+function PlayerSession:getFog(): (number, { number })
+	if not self.kingdom then
+		return self.mapToken, {}
+	end
+	return self.mapToken, self.kingdom:exploredCells()
 end
 
 function PlayerSession:newCampaign(): (boolean, string)

@@ -1,4 +1,5 @@
--- In-game HUD: gold/hero counters, map objective, action bar, hint line and toast messages.
+-- In-game HUD: gold/hero counters, map objective, action bar (build buttons and explore flag),
+-- hint line and toast messages.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,12 +12,12 @@ local WHITE = Color3.new(1, 1, 1)
 local BUTTON = Color3.fromRGB(55, 60, 85)
 local BUTTON_DISABLED = Color3.fromRGB(45, 45, 50)
 
-local DEFAULT_HINT = "WASD to move the camera  ·  Scroll to zoom  ·  Click a building to use it"
+local DEFAULT_HINT = "WASD to move the camera  ·  Scroll to zoom  ·  Click buildings, enemies or flags for actions"
 
 local ACTIONS = {
 	{ id = "WarriorGuild", title = "Warrior Guild", cost = Config.Buildings.WarriorGuild.Cost },
 	{ id = "GuardTower", title = "Guard Tower", cost = Config.Buildings.GuardTower.Cost },
-	{ id = "Bounty", title = "Place Bounty", cost = Config.BOUNTY_AMOUNT },
+	{ id = "Explore", title = "Explore Flag", cost = Config.ExploreFlag.InitialReward },
 }
 
 local UI = {}
@@ -59,6 +60,7 @@ end
 function UI.new(onAction)
 	local self = setmetatable({}, UI)
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+	self.gold = 0
 
 	local gui = make("ScreenGui", {
 		Name = "KingdomHUD",
@@ -137,7 +139,6 @@ function UI.new(onAction)
 			Font = Enum.Font.GothamBold,
 			TextSize = 15,
 			TextColor3 = WHITE,
-			Text = string.format('%s\n<font color="#FFD250">%dg</font>', action.title, action.cost),
 			RichText = true,
 			AutoButtonColor = true,
 			Parent = bar,
@@ -150,11 +151,12 @@ function UI.new(onAction)
 		end)
 		self.buttons[action.id] = entry
 	end
+	self:_refreshButtons()
 
 	self.hintLabel = textLabel({
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -92),
-		Size = UDim2.fromOffset(600, 22),
+		Size = UDim2.fromOffset(900, 22),
 		TextSize = 15,
 		TextStrokeTransparency = 0.5,
 		Text = DEFAULT_HINT,
@@ -188,12 +190,18 @@ function UI:setObjective(mapName: string?, objective: string?)
 end
 
 function UI:refresh(gold: number, heroes: number, heroCap: number)
+	self.gold = gold
 	self.goldLabel.Text = string.format("Gold: %d", gold)
 	self.heroLabel.Text = string.format("Heroes: %d/%d", heroes, heroCap)
+	self:_refreshButtons()
+end
+
+function UI:_refreshButtons()
 	for _, entry in self.buttons do
-		local enabled = gold >= entry.action.cost
+		local cost = entry.action.cost
+		local enabled = self.gold >= cost
 		entry.enabled = enabled
-		entry.button.Text = string.format('%s\n<font color="#FFD250">%dg</font>', entry.action.title, entry.action.cost)
+		entry.button.Text = string.format('%s\n<font color="#FFD250">%dg</font>', entry.action.title, cost)
 		entry.button.BackgroundColor3 = if enabled then BUTTON else BUTTON_DISABLED
 		entry.button.TextTransparency = if enabled then 0 else 0.45
 		entry.button.AutoButtonColor = enabled

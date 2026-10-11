@@ -218,6 +218,74 @@ function buildingBuilders.Rock(model: Model, cf: CFrame, size: Vector3)
 	})
 end
 
+function buildingBuilders.Pine(model: Model, cf: CFrame)
+	newPart(model, {
+		Name = "Trunk",
+		Size = Vector3.new(1.2, 5, 1.2),
+		CFrame = cf * CFrame.new(0, 2.5, 0),
+		Color = Color3.fromRGB(90, 60, 40),
+		Material = Enum.Material.Wood,
+	})
+	-- Stacked, shrinking, rotated layers read as a conifer from above
+	local green = Color3.fromRGB(35, 95, 55)
+	for i, layer in { { 6, 4 }, { 4.6, 8 }, { 3.2, 11.5 }, { 1.8, 14.5 } } do
+		newPart(model, {
+			Name = "Needles",
+			Size = Vector3.new(layer[1], 3.2, layer[1]),
+			CFrame = cf * CFrame.new(0, layer[2], 0) * CFrame.Angles(0, math.rad(i * 30), 0),
+			Color = green,
+			Material = Enum.Material.Grass,
+		})
+	end
+end
+
+function buildingBuilders.Pond(model: Model, cf: CFrame, size: Vector3)
+	newPart(model, {
+		Name = "Shore",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.3, size.X, size.Z),
+		CFrame = cf * CFrame.new(0, 0.2, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(190, 175, 130),
+		Material = Enum.Material.Sand,
+	})
+	newPart(model, {
+		Name = "Water",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.3, size.X - 3, size.Z - 3),
+		CFrame = cf * CFrame.new(0, 0.3, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(60, 120, 190),
+		Material = Enum.Material.Glass,
+		Transparency = 0.15,
+		Reflectance = 0.1,
+	})
+end
+
+function buildingBuilders.Ruins(model: Model, cf: CFrame, size: Vector3)
+	local stone = Color3.fromRGB(140, 135, 125)
+	local walls = {
+		{ Vector3.new(size.X, 5, 1.5), CFrame.new(0, 2.5, -size.Z / 2 + 0.75) },
+		{ Vector3.new(1.5, 3.5, size.Z * 0.7), CFrame.new(-size.X / 2 + 0.75, 1.75, -size.Z * 0.15) },
+		{ Vector3.new(size.X * 0.4, 2, 1.5), CFrame.new(size.X * 0.3, 1, size.Z / 2 - 0.75) },
+		{ Vector3.new(1.5, 6, 1.5), CFrame.new(size.X / 2 - 0.75, 3, -size.Z / 2 + 0.75) },
+	}
+	for _, wall in walls do
+		newPart(model, {
+			Name = "Wall",
+			Size = wall[1],
+			CFrame = cf * wall[2],
+			Color = stone,
+			Material = Enum.Material.Cobblestone,
+		})
+	end
+	newPart(model, {
+		Name = "Rubble",
+		Size = Vector3.new(3, 1.5, 2.5),
+		CFrame = cf * CFrame.new(2, 0.75, 1) * CFrame.Angles(0, math.rad(30), math.rad(12)),
+		Color = stone,
+		Material = Enum.Material.Cobblestone,
+	})
+end
+
 -- Builds a building, den or obstacle with its footprint centered on cf (ground level).
 function Models.makeBuilding(kind: string, cf: CFrame): Model
 	local size = BuildRules.footprint(kind)
@@ -317,6 +385,54 @@ function unitBuilders.Goblin(model: Model)
 	return body, 1, 3, weapon
 end
 
+function unitBuilders.Wolf(model: Model)
+	local grey = Color3.fromRGB(110, 110, 115)
+	local body = newPart(model, {
+		Name = "Body",
+		Size = Vector3.new(1.2, 1.2, 2.6),
+		CFrame = CFrame.new(0, 1.1, 0),
+		Color = grey,
+	})
+	local head = newPart(model, {
+		Name = "Head",
+		Size = Vector3.new(1, 0.9, 1.2),
+		CFrame = CFrame.new(0, 1.6, -1.6),
+		Color = Color3.fromRGB(95, 95, 100),
+	})
+	for _, side in { -1, 1 } do
+		newPart(model, {
+			Name = "Ear",
+			Size = Vector3.new(0.25, 0.5, 0.25),
+			CFrame = CFrame.new(side * 0.3, 2.2, -1.5),
+			Color = grey,
+		})
+		for _, z in { -0.9, 0.9 } do
+			newPart(model, {
+				Name = "Leg",
+				Size = Vector3.new(0.3, 0.8, 0.3),
+				CFrame = CFrame.new(side * 0.4, 0.4, z),
+				Color = Color3.fromRGB(85, 85, 90),
+			})
+		end
+	end
+	newPart(model, {
+		Name = "Tail",
+		Size = Vector3.new(0.3, 0.3, 1.2),
+		CFrame = CFrame.new(0, 1.4, 1.6) * CFrame.Angles(math.rad(25), 0, 0),
+		Color = grey,
+	})
+	-- The "weapon" is the head: the swing becomes a bite
+	local weapon = {
+		part = head,
+		hand = Vector3.new(0, 0.4, -1.1),
+		blade = Vector3.new(0, 0, -0.5),
+		idleAngle = 0,
+		raised = 35,
+		low = -25,
+	}
+	return body, 1.1, 2.6, weapon
+end
+
 -- Returns the model, the body's height above ground, the health bar offset and weapon info.
 function Models.makeUnit(kind: string)
 	local model = Instance.new("Model")
@@ -327,6 +443,111 @@ function Models.makeUnit(kind: string)
 	model.PrimaryPart = body
 	model:SetAttribute("Kind", kind)
 	return model, heightOffset, barOffset, weapon
+end
+
+-- Decorations: purely visual, no collision and no footprint. Each builder gets the decor
+-- entry from the map (positions already converted to world space) and a parent folder.
+-- Flat layers sit at different heights so they never z-fight with the ground or each other.
+
+local decorBuilders = {}
+
+function decorBuilders.Patch(entry, parent: Instance)
+	local size = entry.Size or Vector2.new(30, 30)
+	newPart(parent, {
+		Name = "Patch",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.1, size.X, size.Y),
+		CFrame = CFrame.new(entry.Position + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = entry.Color or Color3.fromRGB(110, 165, 80),
+		Material = entry.Material or Enum.Material.Grass,
+		CanQuery = false,
+		CastShadow = false,
+	})
+end
+
+function decorBuilders.Road(entry, parent: Instance)
+	local from, to = entry.From, entry.To
+	local length = (to - from).Magnitude
+	newPart(parent, {
+		Name = "Road",
+		Size = Vector3.new(entry.Width or 6, 0.1, length),
+		CFrame = CFrame.lookAt((from + to) / 2, to) + Vector3.new(0, 0.15, 0),
+		Color = Color3.fromRGB(150, 125, 90),
+		Material = Enum.Material.Ground,
+		CanQuery = false,
+		CastShadow = false,
+	})
+end
+
+function decorBuilders.Bush(entry, parent: Instance)
+	local scale = entry.Scale or 1
+	newPart(parent, {
+		Name = "Bush",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.one * 2.6 * scale,
+		CFrame = CFrame.new(entry.Position + Vector3.new(0, 0.9 * scale, 0)),
+		Color = Color3.fromRGB(60, 125, 50),
+		Material = Enum.Material.Grass,
+		CanQuery = false,
+	})
+end
+
+local FLOWER_COLORS = {
+	Color3.fromRGB(240, 220, 80),
+	Color3.fromRGB(230, 90, 110),
+	Color3.fromRGB(240, 240, 240),
+	Color3.fromRGB(170, 110, 220),
+}
+
+function decorBuilders.Flowers(entry, parent: Instance)
+	local rng = Random.new(math.floor(entry.Position.X * 7 + entry.Position.Z * 13))
+	local color = FLOWER_COLORS[rng:NextInteger(1, #FLOWER_COLORS)]
+	for _ = 1, 6 do
+		local offset = Vector3.new(rng:NextNumber(-1.5, 1.5), 0.3, rng:NextNumber(-1.5, 1.5))
+		newPart(parent, {
+			Name = "Flower",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.one * 0.5,
+			CFrame = CFrame.new(entry.Position + offset),
+			Color = color,
+			Material = Enum.Material.SmoothPlastic,
+			CanQuery = false,
+			CastShadow = false,
+		})
+	end
+end
+
+function Models.makeDecor(entry, parent: Instance)
+	local builder = decorBuilders[entry.Kind]
+	if builder then
+		builder(entry, parent)
+	else
+		warn("Unknown decor kind:", entry.Kind)
+	end
+end
+
+-- Explore flag planted by the player; heroes walk to it to claim the reward.
+function Models.makeFlag(position: Vector3): Model
+	local model = Instance.new("Model")
+	model.Name = "ExploreFlag"
+	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	local pole = newPart(model, {
+		Name = "Pole",
+		Size = Vector3.new(0.3, 8, 0.3),
+		CFrame = CFrame.new(position + Vector3.new(0, 4, 0)),
+		Color = Color3.fromRGB(90, 65, 40),
+		Material = Enum.Material.Wood,
+	})
+	newPart(model, {
+		Name = "Cloth",
+		Size = Vector3.new(0.1, 2, 3),
+		CFrame = CFrame.new(position + Vector3.new(0, 7, 1.5)),
+		Color = Color3.fromRGB(60, 110, 220),
+	})
+	model.PrimaryPart = pole
+	model:SetAttribute("Kind", "ExploreFlag")
+	model:SetAttribute("BarOffset", 5) -- places the reward label above the flag
+	return model
 end
 
 -- Billboards
@@ -393,7 +614,8 @@ function Models.setLabel(model: Model, text: string)
 	end
 end
 
-function Models.setBounty(model: Model, amount: number)
+-- prefix: label text before the amount, e.g. "BOUNTY" or "EXPLORE"
+function Models.setBounty(model: Model, amount: number, prefix: string?)
 	model:SetAttribute("Bounty", amount)
 	local gui = model:FindFirstChild("Bounty")
 	if amount <= 0 then
@@ -424,7 +646,7 @@ function Models.setBounty(model: Model, amount: number)
 		gui.Adornee = model.PrimaryPart
 		gui.Parent = model
 	end
-	gui.Label.Text = string.format("BOUNTY %dg", amount)
+	gui.Label.Text = string.format("%s %dg", prefix or "BOUNTY", amount)
 end
 
 -- Effects

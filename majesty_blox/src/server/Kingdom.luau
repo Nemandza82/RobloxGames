@@ -2,11 +2,13 @@
 -- plus the map's custom logic (hooks), which runs through a MapContext.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Actions = require(ReplicatedStorage.Shared.Actions)
 local BuildRules = require(ReplicatedStorage.Shared.BuildRules)
 local Config = require(ReplicatedStorage.Shared.Config)
 local ActionHandlers = require(script.Parent.ActionHandlers)
+local FogOfWar = require(script.Parent.FogOfWar)
 local MapContext = require(script.Parent.MapContext)
 local Models = require(script.Parent.Models)
 local Units = require(script.Parent.Units)
@@ -26,9 +28,21 @@ local function newFolder(name: string, parent: Instance): Folder
 	return folder
 end
 
+-- Converts a map decor entry's relative positions to world space.
+local function toWorldDecor(entry, origin: Vector3)
+	local world = table.clone(entry)
+	for _, key in { "Position", "From", "To" } do
+		if world[key] then
+			world[key] = origin + world[key]
+		end
+	end
+	return world
+end
+
 -- folder: the player's (empty) kingdom folder in Workspace
 -- callbacks.notify(text) shows a message to the player
 -- callbacks.effect(kind, ...) plays a client-side visual effect (see client/Effects.luau)
+-- callbacks.fog(cells) sends newly explored fog cells to the client
 -- callbacks.onFinished(result, text) is called once with "Victory" or "Defeat"
 function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callbacks)
 	local self = setmetatable({}, Kingdom)
@@ -38,6 +52,7 @@ function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callb
 	self.map = map
 	self.size = map.Size
 	self.callbacks = callbacks
+	self.buildRadius = map.BuildRadius or Config.BUILD_RADIUS
 
 	self.state = "Playing"
 	self.elapsed = 0
@@ -47,10 +62,19 @@ function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callb
 	self.byModel = {}
 	self.timers = {}
 
+	if map.FogOfWar ~= false then
+		self.fog = FogOfWar.new(origin, self.size, Config.Fog.CellSize)
+		self.fogTimer = 0
+	end
+
 	self.buildingsFolder = newFolder("Buildings", folder)
 	self.heroesFolder = newFolder("Heroes", folder)
 	self.enemiesFolder = newFolder("Enemies", folder)
 	self.obstaclesFolder = newFolder("Obstacles", folder)
+	self.flagsFolder = newFolder("Flags", folder)
+	self.decorFolder = newFolder("Decor", folder)
+	-- Enemies outside the player's sight live here, so they never replicate to the client
+	self.hiddenFolder = newFolder("Hidden_" .. player.UserId, ServerStorage)
 
 	local ground = Instance.new("Part")
 	ground.Name = "Ground"
@@ -65,14 +89,22 @@ function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callb
 	player.ReplicationFocus = ground
 
 	self.castle = self:_addBuilding("Castle", origin + (map.Castle or Vector3.zero))
+	player:SetAttribute("CastlePos", self.castle.pos)
+	player:SetAttribute("BuildRadius", self.buildRadius)
+	player:SetAttribute("FogCellSize", if self.fog then Config.Fog.CellSize else 0)
+
 	for _, den in map.Dens or {} do
 		self:addDen(den)
 	end
 	for _, obstacle in map.Obstacles or {} do
 		self:addObstacle(obstacle.Kind, origin + obstacle.Position)
 	end
+	for _, entry in map.Decor or {} do
+		Models.makeDecor(toWorldDecor(entry, origin), self.decorFolder)
+	end
 
 	self.context = MapContext.new(self)
+	self:_updateFog()
 	self:_sync()
 	self:_runHook("onStart")
 	return self
@@ -85,6 +117,69 @@ function Kingdom:destroy()
 	self.byModel = {}
 	self.timers = {}
 	self.folder:ClearAllChildren()
+	self.hiddenFolder:Destroy()
+end
+
+-- Fog of war
+
+-- Shows or hides an enemy-side model (hidden models are kept in ServerStorage).
+function Kingdom:_setShown(entity, shown: boolean)
+	if entity.shown == shown then
+		return
+	end
+	entity.shown = shown
+	entity.model.Parent = if shown then self.enemiesFolder else self.hiddenFolder
+end
+
+function Kingdom:_updateFog()
+	local fog = self.fog
+	if not fog then
+		return
+	end
+
+	local sight = Config.Fog
+	local sources = {}
+	for _, e in self.entities do
+		if e.alive then
+			if e == self.castle then
+				table.insert(sources, { pos = e.pos, radius = sight.CastleSight })
+			elseif e.category == "Building" then
+				local range = Config.Buildings[e.kind].Range or 0
+				table.insert(sources, { pos = e.pos, radius = math.max(sight.BuildingSight, range + 5) })
+			elseif e.category == "Hero" then
+				table.insert(sources, { pos = e.pos, radius = sight.HeroSight })
+			end
+		end
+	end
+	fog:update(sources)
+
+	local explored = fog:takePending()
+	if #explored > 0 then
+		self.callbacks.fog(explored)
+	end
+
+	for _, e in self.entities do
+		if e.alive then
+			if e.category == "Enemy" then
+				self:_setShown(e, fog:isVisible(e.pos))
+			elseif e.category == "Den" and not e.discovered and fog:isExplored(e.pos) then
+				e.discovered = true
+				self:_setShown(e, true)
+				self.callbacks.notify(string.format("You discovered a %s!", e.model:GetAttribute("DisplayName")))
+			end
+		end
+	end
+end
+
+function Kingdom:exploredCells(): { number }
+	return if self.fog then self.fog:exploredList() else {}
+end
+
+-- Permanently reveals an area (world position).
+function Kingdom:reveal(position: Vector3, radius: number)
+	if self.fog then
+		self.fog:reveal(position, radius)
+	end
 end
 
 -- Map hooks run protected so a bug in a map script can't break the game loop.
@@ -159,8 +254,7 @@ function Kingdom:addDen(def)
 	model:SetAttribute("Side", "Enemy")
 	model:SetAttribute("DisplayName", name)
 	Models.addHealthBar(model, defaults.Size.Y + 3, name)
-	model.Parent = self.enemiesFolder
-	return self:_register({
+	local den = self:_register({
 		kind = "Den",
 		category = "Den",
 		side = "Enemy",
@@ -178,6 +272,10 @@ function Kingdom:addDen(def)
 		bounty = 0,
 		alive = true,
 	})
+	-- Dens stay hidden under the fog until explored (unless the map marks them Discovered)
+	den.discovered = def.Discovered == true or self.fog == nil
+	self:_setShown(den, den.discovered)
+	return den
 end
 
 function Kingdom:addObstacle(kind: string, position: Vector3)
@@ -263,8 +361,60 @@ function Kingdom:spawnEnemy(kind: string, position: Vector3, den)
 	enemy.model:SetAttribute("DisplayName", def.DisplayName)
 	Models.addHealthBar(enemy.model, enemy.barOffset, def.DisplayName)
 	Units.place(enemy)
-	enemy.model.Parent = self.enemiesFolder
+	self:_setShown(enemy, self.fog == nil or self.fog:isVisible(position))
 	return self:_register(enemy)
+end
+
+-- Explore flags
+
+-- Plants an explore flag with the initial reward; the player can raise it by selecting the flag.
+function Kingdom:tryPlaceExploreFlag(position: Vector3): (boolean, string)
+	if self.state ~= "Playing" then
+		return false, "The battle is over"
+	end
+	local amount = Config.ExploreFlag.InitialReward
+	if self.gold < amount then
+		return false, "Not enough gold"
+	end
+	local relative = position - self.origin
+	if math.abs(relative.X) > self.size.X / 2 - 4 or math.abs(relative.Z) > self.size.Y / 2 - 4 then
+		return false, "That's outside your lands"
+	end
+
+	local pos = Vector3.new(position.X, self.origin.Y, position.Z)
+	local model = Models.makeFlag(pos)
+	model:SetAttribute("Side", "Kingdom")
+	model:SetAttribute("DisplayName", Config.ExploreFlag.DisplayName)
+	model.Parent = self.flagsFolder
+	local flag = self:_register({
+		kind = "ExploreFlag",
+		category = "Flag",
+		side = "Kingdom",
+		model = model,
+		pos = pos,
+		radius = 0,
+		health = math.huge,
+		maxHealth = math.huge,
+		bounty = amount,
+		alive = true,
+		noCollide = true,
+	})
+	Models.setBounty(model, flag.bounty, "EXPLORE")
+	self.gold -= amount
+	self:_sync()
+	return true, string.format("Explore flag placed (%dg). Click it to raise the reward.", amount)
+end
+
+function Kingdom:claimFlag(flag, hero)
+	if not flag.alive then
+		return
+	end
+	flag.alive = false
+	self.byModel[flag.model] = nil
+	flag.model:Destroy()
+	hero.gold += flag.bounty
+	Units.refreshLabel(hero)
+	self.callbacks.notify(string.format("%s explored the area and earned %dg!", hero.name, flag.bounty))
 end
 
 -- Queries (used by the unit AI and MapContext)
@@ -324,6 +474,10 @@ function Kingdom:damage(target, amount: number, attacker)
 	target.health -= amount
 	Models.flash(target.model)
 	Models.setHealth(target.model, target.health, target.maxHealth)
+	if target.category == "Den" then
+		-- A den under attack sends out defenders quickly
+		target.spawnTimer = math.min(target.spawnTimer, Config.DEN_DEFENSE_SPAWN_DELAY)
+	end
 	if target.health <= 0 then
 		self:_kill(target, attacker)
 	end
@@ -437,7 +591,10 @@ function Kingdom:tryPlaceBuilding(kind: string, position: Vector3): (boolean, st
 			table.insert(existing, { pos = e.pos, size = e.size })
 		end
 	end
-	if not BuildRules.isValid(kind, snapped, self.origin, self.size, existing) then
+	if not BuildRules.inBuildRadius(snapped, self.castle.pos, self.buildRadius) then
+		return false, "Too far from your castle"
+	end
+	if not BuildRules.isValid(kind, snapped, self.origin, self.size, existing, self.castle.pos, self.buildRadius) then
 		return false, "You can't build there"
 	end
 
@@ -449,7 +606,8 @@ function Kingdom:tryPlaceBuilding(kind: string, position: Vector3): (boolean, st
 end
 
 -- Runs a selection-panel action (see Config.Actions / ActionHandlers) on the object `model`.
-function Kingdom:tryAction(model: Instance, actionId: string): (boolean, string)
+-- amount: the chosen price for VariableCost actions (must be one of Config.BOUNTY_AMOUNTS).
+function Kingdom:tryAction(model: Instance, actionId: string, amount: number?): (boolean, string)
 	if self.state ~= "Playing" then
 		return false, "The battle is over"
 	end
@@ -462,13 +620,20 @@ function Kingdom:tryAction(model: Instance, actionId: string): (boolean, string)
 	if not def or not handler or not Actions.has(target.kind, actionId) then
 		return false, "You can't do that here"
 	end
-	if self.gold < def.Cost then
+	local cost = def.Cost
+	if def.VariableCost then
+		if not Config.isBountyAmount(amount) then
+			return false, "Invalid amount"
+		end
+		cost = amount
+	end
+	if self.gold < cost then
 		return false, "Not enough gold"
 	end
 
-	local ok, message = handler(self, target)
+	local ok, message = handler(self, target, cost)
 	if ok then
-		self.gold -= def.Cost
+		self.gold -= cost
 		self:_sync()
 	end
 	return ok, message
@@ -510,6 +675,14 @@ function Kingdom:update(dt: number)
 
 	self:_updateTimers()
 	self:_updateDens(dt)
+
+	if self.fog then
+		self.fogTimer -= dt
+		if self.fogTimer <= 0 then
+			self.fogTimer = Config.Fog.UpdateInterval
+			self:_updateFog()
+		end
+	end
 
 	-- Entities spawned during this loop wait until next frame
 	local count = #self.entities

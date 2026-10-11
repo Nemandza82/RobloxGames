@@ -1,7 +1,8 @@
 -- Owns world mouse input. Modes:
---   build  — ghost preview of a building, click to place
---   bounty — pick an enemy or den, click to place a bounty
---   (none) — clicks select objects (forwarded to onSelect)
+--   build   — ghost preview of a building, click to place (within the castle's build radius)
+--   explore — click anywhere on the map to plant an explore flag
+--   (none)  — clicks select objects (forwarded to onSelect); bounties are placed from the
+--             selection panel
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,7 +18,7 @@ local RangeRing = require(script.Parent.RangeRing)
 local VALID_COLOR = Color3.fromRGB(80, 220, 80)
 local INVALID_COLOR = Color3.fromRGB(230, 60, 60)
 local PICK_RADIUS = 6 -- small units are hard to click from above; pick the nearest within this range
-local SELECTABLE_FOLDERS = { "Buildings", "Heroes", "Enemies" }
+local SELECTABLE_FOLDERS = { "Buildings", "Heroes", "Enemies", "Flags" }
 
 local player = Players.LocalPlayer
 
@@ -38,6 +39,7 @@ function Placement.new(remotes: Folder, callbacks)
 	self.mode = nil
 	self.enabled = false
 	self.rangeRing = RangeRing.new(Color3.fromRGB(255, 220, 90))
+	self.buildRing = RangeRing.new(Color3.fromRGB(120, 230, 120))
 	self.kingdomFolder = Workspace:WaitForChild("Kingdoms"):WaitForChild(tostring(player.UserId))
 
 	RunService.RenderStepped:Connect(function()
@@ -83,6 +85,7 @@ end
 
 function Placement:_footprints()
 	local list = {}
+	-- Note: hidden dens aren't replicated, so the server may still reject a spot the ghost shows as valid
 	for _, folderName in { "Buildings", "Enemies", "Obstacles" } do
 		local folder = self.kingdomFolder:FindFirstChild(folderName)
 		if folder then
@@ -146,11 +149,9 @@ function Placement:_pick(folderNames: { string }): Model?
 	return best
 end
 
-function Placement:startBuild(kind: string)
-	self:cancel()
-	local size = BuildRules.footprint(kind)
+local function newGhost(size: Vector3, color: Color3?): Part
 	local ghost = Instance.new("Part")
-	ghost.Name = "BuildGhost"
+	ghost.Name = "PlacementGhost"
 	ghost.Anchored = true
 	ghost.CanCollide = false
 	ghost.CanQuery = false
@@ -158,40 +159,49 @@ function Placement:startBuild(kind: string)
 	ghost.Transparency = 0.5
 	ghost.Material = Enum.Material.SmoothPlastic
 	ghost.Size = size
+	if color then
+		ghost.Color = color
+	end
 	ghost.Parent = Workspace
-
-	self.mode = "build"
-	self.kind = kind
-	self.ghost = ghost
-	self.valid = false
-	self.callbacks.setHint(string.format("Click to place %s  ·  Right-click or Esc to cancel", Config.Buildings[kind].DisplayName))
+	return ghost
 end
 
-function Placement:startBounty()
-	self:cancel()
-	local highlight = Instance.new("Highlight")
-	highlight.FillColor = Color3.fromRGB(255, 210, 60)
-	highlight.OutlineColor = Color3.fromRGB(255, 240, 150)
-	highlight.FillTransparency = 0.6
-	highlight.Enabled = false
-	highlight.Parent = Workspace
+function Placement:_castle(): (Vector3, number)
+	return player:GetAttribute("CastlePos") or self.origin, player:GetAttribute("BuildRadius") or Config.BUILD_RADIUS
+end
 
-	self.mode = "bounty"
-	self.highlight = highlight
-	self.hover = nil
-	self.callbacks.setHint("Click an enemy or a den to place a bounty  ·  Right-click or Esc to cancel")
+function Placement:startBuild(kind: string)
+	self:cancel()
+	self.mode = "build"
+	self.kind = kind
+	self.ghost = newGhost(BuildRules.footprint(kind))
+	self.valid = false
+	local castlePos, buildRadius = self:_castle()
+	self.buildRing:show(castlePos, buildRadius)
+	self.callbacks.setHint(string.format(
+		"Click inside the green circle to place %s  ·  Right-click or Esc to cancel",
+		Config.Buildings[kind].DisplayName
+	))
+end
+
+function Placement:startExplore()
+	self:cancel()
+	self.mode = "explore"
+	self.ghost = newGhost(Vector3.new(1, 8, 1), Color3.fromRGB(60, 110, 220))
+	self.callbacks.setHint(string.format(
+		"Click anywhere to plant an explore flag (%dg reward)  ·  Right-click or Esc to cancel",
+		Config.ExploreFlag.InitialReward
+	))
 end
 
 function Placement:cancel()
 	if self.ghost then
 		self.ghost:Destroy()
 		self.ghost = nil
-		self.rangeRing:hide()
 	end
-	if self.highlight then
-		self.highlight:Destroy()
-		self.highlight = nil
-	end
+	self.rangeRing:hide()
+	self.buildRing:hide()
+	self.target = nil
 	if self.mode then
 		self.mode = nil
 		self.callbacks.setHint(nil)
@@ -208,16 +218,18 @@ function Placement:_update()
 		local size = self.ghost.Size
 		self.ghost.CFrame = CFrame.new(snapped + Vector3.new(0, size.Y / 2, 0))
 		local gold = player:GetAttribute("Gold") or 0
+		local castlePos, buildRadius = self:_castle()
 		self.valid = gold >= Config.Buildings[self.kind].Cost
-			and BuildRules.isValid(self.kind, snapped, self.origin, self.plotSize, self:_footprints())
+			and BuildRules.isValid(self.kind, snapped, self.origin, self.plotSize, self:_footprints(), castlePos, buildRadius)
 		self.ghost.Color = if self.valid then VALID_COLOR else INVALID_COLOR
 		self.target = snapped
 		self.rangeRing:show(snapped, Config.Buildings[self.kind].Range)
-	elseif self.mode == "bounty" then
-		self.hover = self:_pick({ "Enemies" })
-		-- A Highlight without an Adornee would highlight its parent (the whole Workspace)
-		self.highlight.Adornee = self.hover
-		self.highlight.Enabled = self.hover ~= nil
+	elseif self.mode == "explore" then
+		local point = self:_groundPoint()
+		if point then
+			self.target = point
+			self.ghost.CFrame = CFrame.new(point + Vector3.new(0, 4, 0))
+		end
 	end
 end
 
@@ -240,21 +252,22 @@ function Placement:_onInput(input: InputObject, processed: boolean)
 
 	if self.mode == "build" then
 		if not self.valid then
-			self.callbacks.toast("You can't build there")
+			local castlePos, buildRadius = self:_castle()
+			local tooFar = self.target and not BuildRules.inBuildRadius(self.target, castlePos, buildRadius)
+			self.callbacks.toast(if tooFar then "Too far from your castle" else "You can't build there")
 			return
 		end
 		local kind, target = self.kind, self.target
 		self:cancel()
 		local _, message = self.remotes.PlaceBuilding:InvokeServer(kind, target)
 		self.callbacks.toast(message)
-	elseif self.mode == "bounty" then
-		local target = self.hover
+	elseif self.mode == "explore" then
+		local target = self.target
 		if not target then
-			self.callbacks.toast("Click on an enemy or a den")
 			return
 		end
 		self:cancel()
-		local _, message = self.remotes.PerformAction:InvokeServer(target, "PlaceBounty")
+		local _, message = self.remotes.PlaceExploreFlag:InvokeServer(target)
 		self.callbacks.toast(message)
 	else
 		self.callbacks.onSelect(self:_pick(SELECTABLE_FOLDERS))

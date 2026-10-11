@@ -29,11 +29,29 @@ function BuildRules.snap(position: Vector3, origin: Vector3): Vector3
 	)
 end
 
+-- Whether a building centered at `position` is close enough to the castle.
+function BuildRules.inBuildRadius(position: Vector3, castlePos: Vector3, radius: number): boolean
+	local offset = position - castlePos
+	return Vector3.new(offset.X, 0, offset.Z).Magnitude <= radius
+end
+
 -- plotSize: map size (X, Z) as a Vector2
 -- existing: list of { pos = Vector3, size = Vector3 }
-function BuildRules.isValid(kind: string, position: Vector3, origin: Vector3, plotSize: Vector2, existing): boolean
+-- castlePos / buildRadius: buildings must be within buildRadius of the castle
+function BuildRules.isValid(
+	kind: string,
+	position: Vector3,
+	origin: Vector3,
+	plotSize: Vector2,
+	existing,
+	castlePos: Vector3,
+	buildRadius: number
+): boolean
 	local size = BuildRules.footprint(kind)
 	if not size then
+		return false
+	end
+	if not BuildRules.inBuildRadius(position, castlePos, buildRadius) then
 		return false
 	end
 

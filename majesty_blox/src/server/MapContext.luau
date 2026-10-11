@@ -109,6 +109,13 @@ function MapContext:randomEdgePoint(side: string?): Vector3
 	end
 end
 
+-- Fog of war
+
+-- Permanently reveals a circle of the map (relative position).
+function MapContext:revealArea(position: Vector3, radius: number)
+	self._kingdom:reveal(self:_toWorld(position), radius)
+end
+
 -- Queries
 
 -- category: "Enemy" | "Den" | "Hero" | "Building" | "Obstacle"
