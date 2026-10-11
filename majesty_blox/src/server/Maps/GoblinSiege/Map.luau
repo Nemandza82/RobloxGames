@@ -38,6 +38,7 @@ return {
 	Size = SIZE,
 	StartingGold = 500,
 	BuildRadius = 85,
+	MaxBuildingLevel = 3,
 	Castle = Vector3.new(0, 0, 0),
 
 	Dens = {},

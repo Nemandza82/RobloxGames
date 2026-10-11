@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Actions = require(Shared:WaitForChild("Actions"))
+local BuildingStats = require(Shared:WaitForChild("BuildingStats"))
 local Config = require(Shared:WaitForChild("Config"))
 local RangeRing = require(script.Parent.RangeRing)
 
@@ -123,6 +124,7 @@ function Selection.new(remotes: Folder, toast)
 		TextColor3 = WHITE,
 		TextStrokeTransparency = 0.5,
 		ZIndex = 2,
+		Text = "",
 		Parent = healthBack,
 	})
 	self.healthBack = healthBack
@@ -232,13 +234,6 @@ function Selection:select(model: Model?)
 	end
 
 	local kind = model:GetAttribute("Kind")
-	local building = Config.Buildings[kind]
-	if building and building.Range and model.PrimaryPart then
-		local base = model.PrimaryPart.Position
-		self.rangeRing:show(Vector3.new(base.X, base.Y - model.PrimaryPart.Size.Y / 2, base.Z), building.Range)
-	else
-		self.rangeRing:hide()
-	end
 	for index, actionId in Actions.forKind(kind) do
 		local def = Config.Actions[actionId]
 		local button = make("TextButton", {
@@ -295,13 +290,24 @@ local function describe(model: Model, kind: string): (string, string)
 	local bounty = model:GetAttribute("Bounty") or 0
 	local bountyLine = if bounty > 0 then string.format('<font color="#FFD250">Bounty: %dg</font>', bounty) else "No bounty"
 
+	local levelText = string.format("Building  ·  Level %d", model:GetAttribute("Level") or 1)
+	local construction = model:GetAttribute("Construction")
+	if construction then
+		return "Building  ·  Under construction", string.format("Construction: %d%%", math.floor(construction * 100))
+	end
 	if kind == "Castle" then
-		return "Building", string.format("Your seat of power. Earns %d gold per second.\nIf it falls, the battle is lost.", Config.INCOME_PER_SECOND)
+		return levelText, string.format(
+			"Your seat of power. Earns %d gold per second.\nIf it falls, the battle is lost.",
+			model:GetAttribute("Income") or 0
+		)
 	elseif kind == "WarriorGuild" then
-		return "Building", string.format("Warriors: %d/%d", model:GetAttribute("Heroes") or 0, model:GetAttribute("HeroCapacity") or 0)
+		return levelText, string.format("Warriors: %d/%d", model:GetAttribute("Heroes") or 0, model:GetAttribute("HeroCapacity") or 0)
 	elseif kind == "GuardTower" then
-		local def = Config.Buildings.GuardTower
-		return "Building", string.format("Shoots nearby enemies.\nDamage %d  ·  Range %d", def.Damage, def.Range)
+		return levelText, string.format(
+			"Shoots nearby enemies.\nDamage %d  ·  Range %d",
+			model:GetAttribute("Damage") or 0,
+			model:GetAttribute("Range") or 0
+		)
 	elseif Config.Heroes[kind] then
 		return "Hero  ·  " .. Config.Heroes[kind].DisplayName, string.format(
 			"Level %d  ·  Kills %d  ·  Damage %d\nCarrying %dg",
@@ -342,6 +348,15 @@ function Selection:_refresh()
 		self.healthText.Text = string.format("%d / %d", health, maxHealth)
 	end
 
+	-- Range ring follows the building's current (level-dependent) range
+	local range = if Config.Buildings[kind] then model:GetAttribute("Range") else nil
+	if range and model.PrimaryPart then
+		local base = model.PrimaryPart.Position
+		self.rangeRing:show(Vector3.new(base.X, base.Y - model.PrimaryPart.Size.Y / 2, base.Z), range)
+	else
+		self.rangeRing:hide()
+	end
+
 	local hasVariableCost = false
 	for _, entry in self.buttons do
 		hasVariableCost = hasVariableCost or entry.def.VariableCost == true
@@ -352,19 +367,34 @@ function Selection:_refresh()
 	local gold = player:GetAttribute("Gold") or 0
 	for _, entry in self.buttons do
 		local def = entry.def
+		local title, description = def.DisplayName, def.Description
 		local cost = if def.VariableCost then self:getRewardAmount() else def.Cost
-		local enabled = gold >= cost
-		local status = string.format('<font color="#FFD250">%dg</font>', cost)
-		if entry.actionId == "RecruitWarrior" and (model:GetAttribute("Heroes") or 0) >= (model:GetAttribute("HeroCapacity") or 0) then
-			enabled = false
-			status = '<font color="#FF8070">Guild full</font>'
+		local blockedReason = nil
+
+		if model:GetAttribute("Construction") then
+			blockedReason = "Building..."
+		elseif entry.actionId == "RecruitWarrior" and (model:GetAttribute("Heroes") or 0) >= (model:GetAttribute("HeroCapacity") or 0) then
+			blockedReason = "Guild full"
+		elseif def.LevelCost then
+			local level = model:GetAttribute("Level") or 1
+			cost = BuildingStats.upgradeCost(kind, level)
+			if not cost then
+				title, description, blockedReason = "Upgrade", "This building is fully upgraded.", "Max level"
+			else
+				title = string.format("Upgrade to Lv%d", level + 1)
+				description = BuildingStats.describeUpgrade(kind, level)
+				if level >= (player:GetAttribute("MaxBuildingLevel") or 1) then
+					blockedReason = "Locked"
+					description ..= "\nUnlocked on later maps."
+				end
+			end
 		end
-		entry.button.Text = string.format(
-			'%s  %s\n<font size="12" color="#AAAAB9">%s</font>',
-			def.DisplayName,
-			status,
-			def.Description
-		)
+
+		local enabled = blockedReason == nil and cost ~= nil and gold >= cost
+		local status = if blockedReason
+			then string.format('<font color="#FF8070">%s</font>', blockedReason)
+			else string.format('<font color="#FFD250">%dg</font>', cost)
+		entry.button.Text = string.format('%s  %s\n<font size="12" color="#AAAAB9">%s</font>', title, status, description)
 		entry.enabled = enabled
 		entry.button.BackgroundColor3 = if enabled then BUTTON else BUTTON_DISABLED
 		entry.button.TextTransparency = if enabled then 0 else 0.45

@@ -614,6 +614,22 @@ function Models.setLabel(model: Model, text: string)
 	end
 end
 
+-- Makes a building look like a construction site (translucent) or finished.
+function Models.setConstructing(model: Model, constructing: boolean)
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") and part ~= model.PrimaryPart then
+			if constructing then
+				if part:GetAttribute("BuiltTransparency") == nil then
+					part:SetAttribute("BuiltTransparency", part.Transparency)
+				end
+				part.Transparency = 0.65
+			else
+				part.Transparency = part:GetAttribute("BuiltTransparency") or part.Transparency
+			end
+		end
+	end
+end
+
 -- prefix: label text before the amount, e.g. "BOUNTY" or "EXPLORE"
 function Models.setBounty(model: Model, amount: number, prefix: string?)
 	model:SetAttribute("Bounty", amount)

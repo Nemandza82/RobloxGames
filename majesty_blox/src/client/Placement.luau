@@ -12,6 +12,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local BuildingStats = require(Shared:WaitForChild("BuildingStats"))
 local BuildRules = require(Shared:WaitForChild("BuildRules"))
 local RangeRing = require(script.Parent.RangeRing)
 
@@ -223,7 +224,7 @@ function Placement:_update()
 			and BuildRules.isValid(self.kind, snapped, self.origin, self.plotSize, self:_footprints(), castlePos, buildRadius)
 		self.ghost.Color = if self.valid then VALID_COLOR else INVALID_COLOR
 		self.target = snapped
-		self.rangeRing:show(snapped, Config.Buildings[self.kind].Range)
+		self.rangeRing:show(snapped, BuildingStats.get(self.kind, 1).Range)
 	elseif self.mode == "explore" then
 		local point = self:_groundPoint()
 		if point then

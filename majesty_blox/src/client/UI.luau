@@ -12,7 +12,7 @@ local WHITE = Color3.new(1, 1, 1)
 local BUTTON = Color3.fromRGB(55, 60, 85)
 local BUTTON_DISABLED = Color3.fromRGB(45, 45, 50)
 
-local DEFAULT_HINT = "WASD to move the camera  ·  Scroll to zoom  ·  Click buildings, enemies or flags for actions"
+local DEFAULT_HINT = "WASD to move the camera  ·  Click buildings, enemies or flags for actions"
 
 local ACTIONS = {
 	{ id = "WarriorGuild", title = "Warrior Guild", cost = Config.Buildings.WarriorGuild.Cost },

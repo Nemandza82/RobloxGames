@@ -23,39 +23,58 @@ Config.Fog = {
 
 -- Economy
 Config.DEFAULT_STARTING_GOLD = 300
-Config.INCOME_PER_SECOND = 3
-Config.KILL_REWARD_KINGDOM = 5
+Config.KILL_REWARD_KINGDOM = 5 -- income per second comes from the castle's level (Levels[n].Income)
 Config.BOUNTY_AMOUNTS = { 25, 50, 100, 200, 400 } -- reward choices in the selection panel
 Config.DEFAULT_BOUNTY = 50
 Config.EXPLORE_REACH = 4 -- a hero this close to an explore flag claims it
+
+-- Buildings. Stats that change with level live in `Levels` (index = level); level 1 is the
+-- freshly built building, later levels have an UpgradeCost. Read stats through
+-- shared/BuildingStats.luau, which merges the level's values over the base definition.
+-- How far a building can be upgraded is also capped per map (map.MaxBuildingLevel).
+Config.DEFAULT_MAX_BUILDING_LEVEL = 1
+Config.CONSTRUCTION_START_HEALTH = 0.1 -- fraction of max health a new building starts with
 
 Config.Buildings = {
 	Castle = {
 		DisplayName = "Castle",
 		Cost = 0,
-		MaxHealth = 1000,
 		Size = Vector3.new(24, 16, 24),
 		Buildable = false,
+		Actions = { "Upgrade" },
+		Levels = {
+			{ MaxHealth = 1000, Income = 3 },
+			{ UpgradeCost = 300, MaxHealth = 1400, Income = 5 },
+			{ UpgradeCost = 600, MaxHealth = 1900, Income = 8 },
+		},
 	},
 	WarriorGuild = {
 		DisplayName = "Warrior Guild",
 		Cost = 200,
-		MaxHealth = 400,
+		BuildTime = 8, -- seconds of construction after placing
 		Size = Vector3.new(16, 10, 16),
 		Buildable = true,
-		HeroCapacity = 4,
-		Actions = { "RecruitWarrior" },
+		Actions = { "RecruitWarrior", "Upgrade" },
+		Levels = {
+			{ MaxHealth = 400, HeroCapacity = 4 },
+			{ UpgradeCost = 250, MaxHealth = 600, HeroCapacity = 6 },
+			{ UpgradeCost = 450, MaxHealth = 850, HeroCapacity = 8 },
+		},
 	},
 	GuardTower = {
 		DisplayName = "Guard Tower",
 		Cost = 150,
-		MaxHealth = 300,
+		BuildTime = 6,
 		Size = Vector3.new(8, 18, 8),
 		Buildable = true,
-		Range = 35,
-		Damage = 8,
 		Cooldown = 1.5,
 		ArrowSpeed = 60, -- studs per second; damage lands when the arrow arrives
+		Actions = { "Upgrade" },
+		Levels = {
+			{ MaxHealth = 300, Damage = 8, Range = 35 },
+			{ UpgradeCost = 150, MaxHealth = 450, Damage = 13, Range = 38 },
+			{ UpgradeCost = 300, MaxHealth = 650, Damage = 20, Range = 42 },
+		},
 	},
 }
 
@@ -134,6 +153,12 @@ Config.Actions = {
 		DisplayName = "Add Reward",
 		Description = "Bigger rewards attract heroes from farther away.",
 		VariableCost = true,
+	},
+	-- Cost is the next level's UpgradeCost (see BuildingStats.upgradeCost)
+	Upgrade = {
+		DisplayName = "Upgrade",
+		Description = "Improve this building.",
+		LevelCost = true,
 	},
 }
 

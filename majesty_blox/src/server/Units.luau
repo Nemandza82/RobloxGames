@@ -261,7 +261,10 @@ function Units.updateEnemy(kingdom, enemy, dt: number)
 end
 
 function Units.updateTower(kingdom, tower, dt: number)
-	local def = Config.Buildings.GuardTower
+	if tower.constructing then
+		return
+	end
+	local def = tower.stats -- level-dependent Range / Damage
 	tower.cooldown = math.max(0, tower.cooldown - dt)
 	if tower.cooldown > 0 then
 		return

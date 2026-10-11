@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Actions = require(ReplicatedStorage.Shared.Actions)
+local BuildingStats = require(ReplicatedStorage.Shared.BuildingStats)
 local BuildRules = require(ReplicatedStorage.Shared.BuildRules)
 local Config = require(ReplicatedStorage.Shared.Config)
 local ActionHandlers = require(script.Parent.ActionHandlers)
@@ -53,6 +54,7 @@ function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callb
 	self.size = map.Size
 	self.callbacks = callbacks
 	self.buildRadius = map.BuildRadius or Config.BUILD_RADIUS
+	self.maxBuildingLevel = map.MaxBuildingLevel or Config.DEFAULT_MAX_BUILDING_LEVEL
 
 	self.state = "Playing"
 	self.elapsed = 0
@@ -91,6 +93,7 @@ function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callb
 	self.castle = self:_addBuilding("Castle", origin + (map.Castle or Vector3.zero))
 	player:SetAttribute("CastlePos", self.castle.pos)
 	player:SetAttribute("BuildRadius", self.buildRadius)
+	player:SetAttribute("MaxBuildingLevel", self.maxBuildingLevel)
 	player:SetAttribute("FogCellSize", if self.fog then Config.Fog.CellSize else 0)
 
 	for _, den in map.Dens or {} do
@@ -144,7 +147,7 @@ function Kingdom:_updateFog()
 			if e == self.castle then
 				table.insert(sources, { pos = e.pos, radius = sight.CastleSight })
 			elseif e.category == "Building" then
-				local range = Config.Buildings[e.kind].Range or 0
+				local range = e.stats.Range or 0
 				table.insert(sources, { pos = e.pos, radius = math.max(sight.BuildingSight, range + 5) })
 			elseif e.category == "Hero" then
 				table.insert(sources, { pos = e.pos, radius = sight.HeroSight })
@@ -216,12 +219,13 @@ end
 
 function Kingdom:_addBuilding(kind: string, position: Vector3)
 	local def = Config.Buildings[kind]
+	local stats = BuildingStats.get(kind, 1)
 	local model = Models.makeBuilding(kind, CFrame.new(position))
 	model:SetAttribute("Side", "Kingdom")
 	model:SetAttribute("DisplayName", def.DisplayName)
 	Models.addHealthBar(model, def.Size.Y + 3, def.DisplayName)
 	model.Parent = self.buildingsFolder
-	return self:_register({
+	local building = self:_register({
 		kind = kind,
 		category = "Building",
 		side = "Kingdom",
@@ -229,12 +233,107 @@ function Kingdom:_addBuilding(kind: string, position: Vector3)
 		pos = position,
 		size = def.Size,
 		radius = math.max(def.Size.X, def.Size.Z) / 2,
-		health = def.MaxHealth,
-		maxHealth = def.MaxHealth,
+		level = 1,
+		stats = stats,
+		health = stats.MaxHealth,
+		maxHealth = stats.MaxHealth,
 		bounty = 0,
 		alive = true,
 		cooldown = 0,
 	})
+	self:_applyLevel(building)
+	return building
+end
+
+-- Applies the building's current level: stats, health (the max health increase is added
+-- to current health) and the attributes the selection panel reads.
+function Kingdom:_applyLevel(building)
+	local stats = BuildingStats.get(building.kind, building.level)
+	building.health += stats.MaxHealth - building.maxHealth
+	building.maxHealth = stats.MaxHealth
+	building.stats = stats
+
+	local model = building.model
+	model:SetAttribute("Level", building.level)
+	for _, stat in BuildingStats.LEVEL_STATS do
+		model:SetAttribute(stat.key, stats[stat.key])
+	end
+	Models.setHealth(model, building.health, building.maxHealth)
+	self:_refreshBuildingLabel(building)
+end
+
+function Kingdom:_refreshBuildingLabel(building)
+	local name = building.stats.DisplayName
+	local label
+	if building.constructing then
+		label = string.format("%s  %d%%", name, math.floor(building.buildProgress * 100))
+	elseif building.level > 1 then
+		label = string.format("%s  Lv%d", name, building.level)
+	else
+		label = name
+	end
+	Models.setLabel(building.model, label)
+end
+
+-- Construction: a newly placed building starts translucent with low health, can't act
+-- (towers don't shoot, guilds don't recruit) and finishes after its BuildTime.
+
+function Kingdom:_startConstruction(building)
+	local buildTime = building.stats.BuildTime
+	if not buildTime or buildTime <= 0 then
+		return
+	end
+	building.constructing = true
+	building.buildProgress = 0
+	building.shownPercent = 0
+	building.health = building.maxHealth * Config.CONSTRUCTION_START_HEALTH
+	building.model:SetAttribute("Construction", 0)
+	Models.setConstructing(building.model, true)
+	Models.setHealth(building.model, building.health, building.maxHealth)
+	self:_refreshBuildingLabel(building)
+end
+
+function Kingdom:_updateConstruction(dt: number)
+	for _, building in self.entities do
+		if building.alive and building.constructing then
+			local step = dt / building.stats.BuildTime
+			building.buildProgress = math.min(1, building.buildProgress + step)
+			-- Health grows with progress; damage taken while building is kept
+			local growth = building.maxHealth * (1 - Config.CONSTRUCTION_START_HEALTH) * step
+			building.health = math.min(building.maxHealth, building.health + growth)
+
+			local percent = math.floor(building.buildProgress * 100)
+			if percent ~= building.shownPercent then
+				building.shownPercent = percent
+				building.model:SetAttribute("Construction", building.buildProgress)
+				Models.setHealth(building.model, building.health, building.maxHealth)
+				self:_refreshBuildingLabel(building)
+			end
+
+			if building.buildProgress >= 1 then
+				building.constructing = false
+				building.model:SetAttribute("Construction", nil)
+				Models.setConstructing(building.model, false)
+				self:_refreshBuildingLabel(building)
+				self.callbacks.notify(building.stats.DisplayName .. " completed!")
+				self:_runHook("onBuildingCompleted", building)
+			end
+		end
+	end
+end
+
+-- Upgrades a building one level if the building and the map allow it. Returns (ok, message).
+function Kingdom:upgradeBuilding(building): (boolean, string)
+	if building.level >= BuildingStats.maxLevel(building.kind) then
+		return false, "Already at max level"
+	end
+	if building.level >= self.maxBuildingLevel then
+		return false, "Upgrades beyond this level are locked on this map"
+	end
+	building.level += 1
+	self:_applyLevel(building)
+	self:_sync()
+	return true, string.format("%s upgraded to level %d!", building.stats.DisplayName, building.level)
 end
 
 -- def: map den entry; Position is relative to the plot origin, other fields override Config.DenDefaults.
@@ -458,8 +557,8 @@ end
 function Kingdom:_heroCapacity(): number
 	local total = 0
 	for _, e in self.entities do
-		if e.alive and e.category == "Building" then
-			total += Config.Buildings[e.kind].HeroCapacity or 0
+		if e.alive and e.category == "Building" and not e.constructing then
+			total += e.stats.HeroCapacity or 0
 		end
 	end
 	return total
@@ -600,9 +699,10 @@ function Kingdom:tryPlaceBuilding(kind: string, position: Vector3): (boolean, st
 
 	self.gold -= def.Cost
 	local building = self:_addBuilding(kind, snapped)
+	self:_startConstruction(building)
 	self:_sync()
 	self:_runHook("onBuildingPlaced", building)
-	return true, def.DisplayName .. " built!"
+	return true, string.format("Building %s...", def.DisplayName)
 end
 
 -- Runs a selection-panel action (see Config.Actions / ActionHandlers) on the object `model`.
@@ -620,12 +720,24 @@ function Kingdom:tryAction(model: Instance, actionId: string, amount: number?): 
 	if not def or not handler or not Actions.has(target.kind, actionId) then
 		return false, "You can't do that here"
 	end
+	if target.constructing then
+		return false, "Still under construction"
+	end
 	local cost = def.Cost
 	if def.VariableCost then
 		if not Config.isBountyAmount(amount) then
 			return false, "Invalid amount"
 		end
 		cost = amount
+	elseif def.LevelCost then
+		cost = BuildingStats.upgradeCost(target.kind, target.level)
+		if not cost then
+			return false, "Already at max level"
+		end
+		-- Report the map's level cap before complaining about gold
+		if target.level >= self.maxBuildingLevel then
+			return false, "Upgrades beyond this level are locked on this map"
+		end
 	end
 	if self.gold < cost then
 		return false, "Not enough gold"
@@ -666,7 +778,9 @@ function Kingdom:update(dt: number)
 	end
 	self.elapsed += dt
 
-	self.income += dt * Config.INCOME_PER_SECOND
+	if self.castle.alive then
+		self.income += dt * self.castle.stats.Income
+	end
 	if self.income >= 1 then
 		local whole = math.floor(self.income)
 		self.gold += whole
@@ -675,6 +789,7 @@ function Kingdom:update(dt: number)
 
 	self:_updateTimers()
 	self:_updateDens(dt)
+	self:_updateConstruction(dt)
 
 	if self.fog then
 		self.fogTimer -= dt
@@ -739,7 +854,7 @@ function Kingdom:_sync()
 		end
 	end
 
-	-- Per-guild hero counts for the selection panel
+	-- Per-guild hero counts for the selection panel (capacity is set by _applyLevel)
 	local heroesByHome = {}
 	for _, e in self.entities do
 		if e.alive and e.home then
@@ -747,14 +862,10 @@ function Kingdom:_sync()
 		end
 	end
 	for _, e in self.entities do
-		if e.alive and e.category == "Building" then
-			local capacity = Config.Buildings[e.kind].HeroCapacity
-			if capacity then
-				local count = heroesByHome[e] or 0
-				if e.model:GetAttribute("Heroes") ~= count then
-					e.model:SetAttribute("Heroes", count)
-					e.model:SetAttribute("HeroCapacity", capacity)
-				end
+		if e.alive and e.category == "Building" and e.stats.HeroCapacity then
+			local count = heroesByHome[e] or 0
+			if e.model:GetAttribute("Heroes") ~= count then
+				e.model:SetAttribute("Heroes", count)
 			end
 		end
 	end

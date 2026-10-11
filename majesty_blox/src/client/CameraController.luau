@@ -1,14 +1,14 @@
--- Top-down strategy camera: WASD / arrow keys to pan, mouse wheel to zoom.
+-- Top-down strategy camera: WASD / arrow keys to pan.
+-- Zoom is fixed on purpose: the player only sees part of the map and has to pan around
+-- (and explore) to keep track of their kingdom.
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local PITCH = math.rad(55)
-local MIN_ZOOM = 40
-local MAX_ZOOM = 240
-local ZOOM_STEP = 10
-local PAN_SPEED = 0.9 -- multiplied by zoom, so panning feels the same at any height
+local ZOOM = 100 -- camera distance from the focus point
+local PAN_SPEED = 90 -- studs per second
 
 local PAN_KEYS = {
 	[Enum.KeyCode.W] = Vector3.new(0, 0, -1),
@@ -26,16 +26,9 @@ local CameraController = {}
 local origin = Vector3.zero
 local bounds = Vector2.new(220, 220)
 local focus = Vector3.zero
-local zoom = 110
 local panEnabled = false
 
 function CameraController.start()
-	UserInputService.InputChanged:Connect(function(input, processed)
-		if panEnabled and not processed and input.UserInputType == Enum.UserInputType.MouseWheel then
-			zoom = math.clamp(zoom - input.Position.Z * ZOOM_STEP, MIN_ZOOM, MAX_ZOOM)
-		end
-	end)
-
 	RunService:BindToRenderStep("TopDownCamera", Enum.RenderPriority.Camera.Value + 1, function(dt)
 		local camera = Workspace.CurrentCamera
 		camera.CameraType = Enum.CameraType.Scriptable
@@ -48,7 +41,7 @@ function CameraController.start()
 				end
 			end
 			if move.Magnitude > 0 then
-				focus += move.Unit * PAN_SPEED * zoom * dt
+				focus += move.Unit * PAN_SPEED * dt
 			end
 		end
 
@@ -58,7 +51,7 @@ function CameraController.start()
 			math.clamp(focus.Z, origin.Z - bounds.Y / 2, origin.Z + bounds.Y / 2)
 		)
 
-		local offset = Vector3.new(0, math.sin(PITCH), math.cos(PITCH)) * zoom
+		local offset = Vector3.new(0, math.sin(PITCH), math.cos(PITCH)) * ZOOM
 		camera.CFrame = CFrame.lookAt(focus + offset, focus)
 	end)
 end
@@ -68,7 +61,6 @@ function CameraController.setMap(plotOrigin: Vector3, plotSize: Vector2)
 	origin = plotOrigin
 	bounds = plotSize
 	focus = plotOrigin + Vector3.new(0, 0, 20)
-	zoom = 120
 end
 
 -- Disabled while menus are open.

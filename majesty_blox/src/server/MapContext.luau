@@ -6,7 +6,8 @@
 --   onStart(ctx)
 --   onUpdate(ctx, dt)
 --   onEntityKilled(ctx, entity, killer)   entity.category: "Enemy" | "Den" | "Hero" | "Building"
---   onBuildingPlaced(ctx, building)
+--   onBuildingPlaced(ctx, building)       construction starts
+--   onBuildingCompleted(ctx, building)    construction finished
 --   onHeroRecruited(ctx, hero)
 --   onFinished(ctx, result)               result: "Victory" | "Defeat"
 --   checkVictory(ctx) -> boolean          default: all dens destroyed

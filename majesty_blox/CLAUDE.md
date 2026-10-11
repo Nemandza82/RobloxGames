@@ -22,6 +22,21 @@ Sync with `tools\sync-server.ps1 -Project majesty_blox` (see root `CLAUDE.md`).
 - Shared (`src/shared`): `Config` (balance values, action definitions), `Actions` (which kind
   offers which action), `BuildRules` (placement validation).
 
+## Building levels
+
+`Config.Buildings[kind].Levels[n]` holds per-level stats (`MaxHealth`, `Income`, `Damage`,
+`Range`, `HeroCapacity`) and the `UpgradeCost` to reach that level. Always read stats through
+`shared/BuildingStats.luau` (`get`, `upgradeCost`, `maxLevel`, `describeUpgrade`); buildings keep
+`level` and `stats` on the entity, and `Kingdom:_applyLevel` mirrors them to model attributes
+(`Level`, stat keys) for the panel. The `Upgrade` action (`LevelCost = true`) costs the next
+level's `UpgradeCost` and is capped per map by `map.MaxBuildingLevel`
+(`Config.DEFAULT_MAX_BUILDING_LEVEL` = 1; Green Valley 2, later maps 3), exposed to the client
+as the `MaxBuildingLevel` player attribute. Castle income comes from the castle's level.
+
+## Camera
+
+Fixed zoom (no mouse-wheel zoom) by design: the player has to pan around the map.
+
 ## Selection & actions
 
 Clicking a building, hero or enemy selects it and opens a panel (info + action buttons).
@@ -63,8 +78,10 @@ Den entries can set `Enemy` (Goblin, Wolf), `DisplayName`, spawn values and `Dis
   `Fog` remote, both tagged with the `MapToken` attribute so stale updates are ignored.
 - Explore flags (`PlaceExploreFlag`, category `"Flag"`, `noCollide`) are bounties on a spot:
   a hero who reaches it claims the reward. Heroes pick bounties by reward / (distance + bias).
-- Bounty / explore rewards come from the HUD stepper (`Config.BOUNTY_AMOUNTS`), sent as the
-  amount for VariableCost actions and validated on the server.
+- Bounties are placed from the selection panel: select an enemy, den or explore flag, pick the
+  reward with the panel's +/- stepper (`Config.BOUNTY_AMOUNTS`) and press "Add Reward"
+  (`PlaceBounty`, a VariableCost action validated on the server). Explore flags are planted from
+  the build bar for `Config.ExploreFlag.InitialReward`.
 - Buildings must be within the build radius of the castle (`BuildRules.inBuildRadius`,
   `BuildRadius` attribute); a green ring shows it while placing.
 

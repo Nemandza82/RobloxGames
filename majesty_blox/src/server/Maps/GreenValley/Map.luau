@@ -40,6 +40,7 @@ return {
 
 	Size = SIZE,
 	StartingGold = 350,
+	MaxBuildingLevel = 2, -- one upgrade per building: introduces upgrades without outgrowing the map
 	Castle = Vector3.new(0, 0, 0),
 
 	Dens = {
@@ -52,6 +53,13 @@ return {
 		ctx:after(2, function()
 			ctx:notify("Build a Warrior Guild, then click it to recruit heroes.")
 		end)
+	end,
+
+	onBuildingCompleted = function(ctx, building)
+		if building.kind == "WarriorGuild" and not ctx.state.guildTip then
+			ctx.state.guildTip = true
+			ctx:notify("Your guild is ready! Click it to recruit warriors.")
+		end
 	end,
 
 	onHeroRecruited = function(ctx)

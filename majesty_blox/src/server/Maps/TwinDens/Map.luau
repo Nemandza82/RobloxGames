@@ -49,6 +49,7 @@ return {
 
 	Size = SIZE,
 	StartingGold = 400,
+	MaxBuildingLevel = 3,
 	Castle = Vector3.new(0, 0, 0),
 
 	Dens = {
