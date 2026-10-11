@@ -1,0 +1,15 @@
+# Roblox Studio lock / autosave files
+*.rbxl.lock
+*.rbxlx.lock
+*.rbxm.lock
+*_autosave*
+
+# Rojo build output (if we switch to Rojo later)
+build/
+sourcemap.json
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
