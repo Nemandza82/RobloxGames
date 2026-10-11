@@ -8,17 +8,78 @@ local Models = require(script.Parent.Models)
 
 local Units = {}
 
+-- Melee swing: raise the weapon, chop down, return. Damage lands at SWING_IMPACT.
+local SWING_DURATION = 0.4
+local SWING_IMPACT = 0.55 -- fraction of the swing
+local SWING_RAISED = 85 -- degrees
+local SWING_LOW = -25
+local LUNGE = 0.6 -- studs forward at the middle of the swing
+
 local function flat(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
 end
 
+local function lerp(a: number, b: number, t: number): number
+	return a + (b - a) * t
+end
+
+-- Weapon angle (degrees) at swing progress t (0..1), or the resting angle when not swinging.
+local function weaponAngle(idle: number, t: number?): number
+	if not t then
+		return idle
+	elseif t < 0.3 then
+		return lerp(idle, SWING_RAISED, t / 0.3)
+	elseif t < SWING_IMPACT then
+		return lerp(SWING_RAISED, SWING_LOW, (t - 0.3) / (SWING_IMPACT - 0.3))
+	else
+		return lerp(SWING_LOW, idle, (t - SWING_IMPACT) / (1 - SWING_IMPACT))
+	end
+end
+
 function Units.place(unit)
-	unit.model:PivotTo(CFrame.lookAt(unit.pos, unit.pos + unit.facing) + Vector3.new(0, unit.heightOffset, 0))
+	local t = unit.swing and math.clamp(unit.swing.time / SWING_DURATION, 0, 1)
+	local lunge = if t then math.sin(t * math.pi) * LUNGE else 0
+	local pivot = CFrame.lookAt(unit.pos, unit.pos + unit.facing)
+		* CFrame.new(0, unit.heightOffset, -lunge)
+	unit.model:PivotTo(pivot)
+
+	local weapon = unit.weapon
+	if weapon then
+		weapon.part.CFrame = pivot
+			* CFrame.new(weapon.hand)
+			* CFrame.Angles(math.rad(weaponAngle(weapon.idleAngle, t)), 0, 0)
+			* CFrame.new(weapon.blade)
+	end
+end
+
+-- Advances the current melee swing and deals its damage at the moment of impact.
+local function advanceSwing(kingdom, unit, dt: number)
+	local swing = unit.swing
+	if not swing then
+		return
+	end
+	swing.time += dt
+	if not swing.hit and swing.time >= SWING_DURATION * SWING_IMPACT then
+		swing.hit = true
+		local target = swing.target
+		local reach = unit.attackRange + target.radius + 1.5
+		if target.alive and flat(target.pos - unit.pos).Magnitude <= reach then
+			kingdom:damage(target, unit.damage, unit)
+		end
+	end
+	if swing.time >= SWING_DURATION then
+		unit.swing = nil
+	end
 end
 
 function Units.refreshLabel(unit)
 	if unit.category == "Hero" then
 		Models.setLabel(unit.model, string.format("%s Lv%d (%dg)", unit.name, unit.level, unit.gold))
+		local model = unit.model
+		model:SetAttribute("Level", unit.level)
+		model:SetAttribute("Gold", unit.gold)
+		model:SetAttribute("Kills", unit.kills)
+		model:SetAttribute("Damage", unit.damage)
 	end
 end
 
@@ -84,9 +145,9 @@ local function engage(kingdom, unit, target, dt: number)
 		return
 	end
 	face(kingdom, unit, target.pos)
-	if unit.cooldown <= 0 then
+	if unit.cooldown <= 0 and not unit.swing then
 		unit.cooldown = unit.attackCooldown
-		kingdom:damage(target, unit.damage, unit)
+		unit.swing = { time = 0, target = target, hit = false }
 	end
 end
 
@@ -105,6 +166,10 @@ end
 
 function Units.updateHero(kingdom, hero, dt: number)
 	hero.cooldown = math.max(0, hero.cooldown - dt)
+	advanceSwing(kingdom, hero, dt)
+	if not hero.alive then
+		return
+	end
 	local castle = kingdom.castle
 
 	-- Retreat to the castle to heal when badly hurt
@@ -118,7 +183,7 @@ function Units.updateHero(kingdom, hero, dt: number)
 			local dist = moveToward(kingdom, hero, castle.pos, castle.radius + 2, dt)
 			if dist <= castle.radius + 4 then
 				hero.health = math.min(hero.maxHealth, hero.health + Config.HERO_HEAL_PER_SECOND * dt)
-				Models.setHealth(hero.model, hero.health / hero.maxHealth)
+				Models.setHealth(hero.model, hero.health, hero.maxHealth)
 			end
 			if hero.health >= hero.maxHealth then
 				hero.state = "Idle"
@@ -155,6 +220,10 @@ end
 
 function Units.updateEnemy(kingdom, enemy, dt: number)
 	enemy.cooldown = math.max(0, enemy.cooldown - dt)
+	advanceSwing(kingdom, enemy, dt)
+	if not enemy.alive then
+		return
+	end
 
 	local target = kingdom:findNearest(enemy.pos, enemy.aggroRange, function(e)
 		return e.category == "Hero"
@@ -181,9 +250,14 @@ function Units.updateTower(kingdom, tower, dt: number)
 	if target then
 		tower.cooldown = def.Cooldown
 		local from = tower.pos + Vector3.new(0, def.Size.Y - 2, 0)
-		local to = target.pos + Vector3.new(0, target.heightOffset, 0)
-		Models.shot(from, to, kingdom.effectsFolder)
-		kingdom:damage(target, def.Damage, tower)
+		local flightTime = math.max(0.25, (target.pos - from).Magnitude / def.ArrowSpeed)
+		-- The client draws the arrow; damage lands when it arrives
+		kingdom.callbacks.effect("Arrow", from, target.model, flightTime)
+		kingdom:addTimer(flightTime, function()
+			if target.alive then
+				kingdom:damage(target, def.Damage, tower)
+			end
+		end)
 	end
 end
 
@@ -199,7 +273,7 @@ function Units.rewardHero(hero, gold: number): boolean
 		hero.damage += Config.HERO_LEVEL_DAMAGE
 		leveled = true
 	end
-	Models.setHealth(hero.model, hero.health / hero.maxHealth)
+	Models.setHealth(hero.model, hero.health, hero.maxHealth)
 	Units.refreshLabel(hero)
 	return leveled
 end

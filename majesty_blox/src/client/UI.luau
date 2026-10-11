@@ -11,12 +11,11 @@ local WHITE = Color3.new(1, 1, 1)
 local BUTTON = Color3.fromRGB(55, 60, 85)
 local BUTTON_DISABLED = Color3.fromRGB(45, 45, 50)
 
-local DEFAULT_HINT = "WASD to move the camera  ·  Scroll to zoom"
+local DEFAULT_HINT = "WASD to move the camera  ·  Scroll to zoom  ·  Click a building to use it"
 
 local ACTIONS = {
 	{ id = "WarriorGuild", title = "Warrior Guild", cost = Config.Buildings.WarriorGuild.Cost },
 	{ id = "GuardTower", title = "Guard Tower", cost = Config.Buildings.GuardTower.Cost },
-	{ id = "Recruit", title = "Recruit Warrior", cost = Config.Heroes.Warrior.Cost },
 	{ id = "Bounty", title = "Place Bounty", cost = Config.BOUNTY_AMOUNT },
 }
 
@@ -143,10 +142,13 @@ function UI.new(onAction)
 			AutoButtonColor = true,
 			Parent = bar,
 		}, { corner(8) })
+		local entry = { button = button, action = action, enabled = false }
 		button.Activated:Connect(function()
-			onAction(action.id)
+			if entry.enabled then
+				onAction(action.id)
+			end
 		end)
-		self.buttons[action.id] = { button = button, action = action }
+		self.buttons[action.id] = entry
 	end
 
 	self.hintLabel = textLabel({
@@ -188,20 +190,13 @@ end
 function UI:refresh(gold: number, heroes: number, heroCap: number)
 	self.goldLabel.Text = string.format("Gold: %d", gold)
 	self.heroLabel.Text = string.format("Heroes: %d/%d", heroes, heroCap)
-	for id, entry in self.buttons do
+	for _, entry in self.buttons do
 		local enabled = gold >= entry.action.cost
-		local subtitle = string.format('<font color="#FFD250">%dg</font>', entry.action.cost)
-		if id == "Recruit" then
-			enabled = enabled and heroes < heroCap
-			if heroCap == 0 then
-				subtitle = '<font color="#FF8070">Needs a guild</font>'
-			elseif heroes >= heroCap then
-				subtitle = '<font color="#FF8070">Guild full</font>'
-			end
-		end
-		entry.button.Text = entry.action.title .. "\n" .. subtitle
+		entry.enabled = enabled
+		entry.button.Text = string.format('%s\n<font color="#FFD250">%dg</font>', entry.action.title, entry.action.cost)
 		entry.button.BackgroundColor3 = if enabled then BUTTON else BUTTON_DISABLED
 		entry.button.TextTransparency = if enabled then 0 else 0.45
+		entry.button.AutoButtonColor = enabled
 	end
 end
 

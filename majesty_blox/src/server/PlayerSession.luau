@@ -35,12 +35,13 @@ local function getRoot(): Folder
 	return root
 end
 
--- notify(player, text) sends a toast message to the player.
-function PlayerSession.new(player: Player, slot: number, notify)
+-- messaging.notify(player, text) sends a toast message to the player.
+-- messaging.effect(player, kind, ...) plays a visual effect on the player's client.
+function PlayerSession.new(player: Player, slot: number, messaging)
 	local self = setmetatable({}, PlayerSession)
 	self.player = player
 	self.origin = PLOT_ORIGINS[slot]
-	self.notify = notify
+	self.messaging = messaging
 	self.kingdom = nil
 	self.mapIndex = nil
 
@@ -92,7 +93,10 @@ function PlayerSession:startMap(index: number): (boolean, string)
 
 	self.kingdom = Kingdom.new(player, self.folder, self.origin, map, {
 		notify = function(text)
-			self.notify(player, text)
+			self.messaging.notify(player, text)
+		end,
+		effect = function(kind, ...)
+			self.messaging.effect(player, kind, ...)
 		end,
 		onFinished = function(result, text)
 			self:_onFinished(result, text)

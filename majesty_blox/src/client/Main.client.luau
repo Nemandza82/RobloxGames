@@ -4,8 +4,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local CameraController = require(script.Parent.CameraController)
+local Effects = require(script.Parent.Effects)
 local Menu = require(script.Parent.Menu)
 local Placement = require(script.Parent.Placement)
+local Selection = require(script.Parent.Selection)
 local UI = require(script.Parent.UI)
 
 local player = Players.LocalPlayer
@@ -13,24 +15,35 @@ local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 CameraController.start()
 
-local hud, placement
+local hud, placement, selection
+
+local function toast(text)
+	hud:toast(text)
+end
 
 hud = UI.new(function(action)
-	if action == "Recruit" then
-		local _, message = remotes.Recruit:InvokeServer("Warrior")
-		hud:toast(message)
-	elseif action == "Bounty" then
+	selection:clear()
+	if action == "Bounty" then
 		placement:startBounty()
 	else
 		placement:startBuild(action)
 	end
 end)
 
-placement = Placement.new(remotes, function(text)
-	hud:toast(text)
-end, function(text)
-	hud:setHint(text)
-end)
+selection = Selection.new(remotes, toast)
+
+placement = Placement.new(remotes, {
+	toast = toast,
+	setHint = function(text)
+		hud:setHint(text)
+	end,
+	onSelect = function(model)
+		selection:select(model)
+	end,
+	onCancel = function()
+		selection:clear()
+	end,
+})
 
 local menu = Menu.new({
 	getCampaign = function()
@@ -57,12 +70,14 @@ end
 
 local function onPhaseChanged()
 	local phase = player:GetAttribute("Phase")
+	selection:clear()
 	if phase == "Playing" then
 		local origin = player:GetAttribute("PlotOrigin")
 		local size = player:GetAttribute("PlotSize")
 		CameraController.setMap(origin, size)
 		CameraController.setPanEnabled(true)
 		placement:setMap(origin, size)
+		placement:setEnabled(true)
 		refreshObjective()
 		refreshStats()
 		hud:setVisible(true)
@@ -70,7 +85,7 @@ local function onPhaseChanged()
 		return
 	end
 
-	placement:cancel()
+	placement:setEnabled(false)
 	CameraController.setPanEnabled(false)
 	if phase == "Menu" then
 		hud:setVisible(false)
@@ -86,12 +101,9 @@ end
 player:GetAttributeChangedSignal("Objective"):Connect(refreshObjective)
 player:GetAttributeChangedSignal("Phase"):Connect(onPhaseChanged)
 
-remotes.Notify.OnClientEvent:Connect(function(text)
-	hud:toast(text)
-end)
+remotes.Notify.OnClientEvent:Connect(toast)
+remotes.Effect.OnClientEvent:Connect(Effects.play)
 
-if player:GetAttribute("Phase") == nil then
-	player:GetAttributeChangedSignal("Phase"):Wait()
-else
+if player:GetAttribute("Phase") ~= nil then
 	onPhaseChanged()
 end

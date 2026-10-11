@@ -1,7 +1,7 @@
 -- Builds the visual models (blocky placeholders) for buildings and units,
--- plus billboard UI (health bars, labels, bounty flags) and simple effects.
+-- plus billboard UI (health bars, labels, bounty flags) and the hit flash.
+-- Projectiles are drawn on the client (client/Effects.luau).
 
-local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BuildRules = require(ReplicatedStorage.Shared.BuildRules)
@@ -265,7 +265,7 @@ function unitBuilders.Warrior(model: Model)
 		Color = Color3.fromRGB(170, 170, 180),
 		Material = Enum.Material.Metal,
 	})
-	newPart(model, {
+	local sword = newPart(model, {
 		Name = "Sword",
 		Size = Vector3.new(0.25, 0.25, 3),
 		CFrame = CFrame.new(1.25, 1.4, -1.2),
@@ -278,7 +278,10 @@ function unitBuilders.Warrior(model: Model)
 		CFrame = CFrame.new(-1.2, 1.4, 0),
 		Color = Color3.fromRGB(150, 30, 30),
 	})
-	return body, 1.3, 3.6
+	-- Weapon: hand position relative to the body center, blade center relative to the hand
+	-- (pointing forward at angle 0), resting angle in degrees (positive = raised).
+	local weapon = { part = sword, hand = Vector3.new(1.25, 0.1, -0.3), blade = Vector3.new(0, 0, -1.5), idleAngle = 45 }
+	return body, 1.3, 3.6, weapon
 end
 
 function unitBuilders.Goblin(model: Model)
@@ -304,24 +307,26 @@ function unitBuilders.Goblin(model: Model)
 			Color = green,
 		})
 	end
-	newPart(model, {
+	local club = newPart(model, {
 		Name = "Club",
 		Size = Vector3.new(0.4, 0.4, 2),
 		CFrame = CFrame.new(0.95, 1, -0.8),
 		Color = Color3.fromRGB(80, 55, 35),
 	})
-	return body, 1, 3
+	local weapon = { part = club, hand = Vector3.new(0.95, 0, -0.2), blade = Vector3.new(0, 0, -1), idleAngle = 40 }
+	return body, 1, 3, weapon
 end
 
-function Models.makeUnit(kind: string): (Model, number, number)
+-- Returns the model, the body's height above ground, the health bar offset and weapon info.
+function Models.makeUnit(kind: string)
 	local model = Instance.new("Model")
 	model.Name = kind
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
-	local body, heightOffset, barOffset = unitBuilders[kind](model)
+	local body, heightOffset, barOffset, weapon = unitBuilders[kind](model)
 	body:SetAttribute("BaseColor", body.Color)
 	model.PrimaryPart = body
 	model:SetAttribute("Kind", kind)
-	return model, heightOffset, barOffset
+	return model, heightOffset, barOffset, weapon
 end
 
 -- Billboards
@@ -367,12 +372,15 @@ function Models.addHealthBar(model: Model, offsetY: number, text: string)
 	gui.Parent = model
 end
 
-function Models.setHealth(model: Model, fraction: number)
+-- Updates the health bar and the Health/MaxHealth attributes (read by the client's selection panel).
+function Models.setHealth(model: Model, health: number, maxHealth: number)
+	model:SetAttribute("Health", math.max(0, math.ceil(health)))
+	model:SetAttribute("MaxHealth", maxHealth)
 	local gui = model:FindFirstChild("HealthBar")
 	if not gui then
 		return
 	end
-	fraction = math.clamp(fraction, 0, 1)
+	local fraction = math.clamp(health / maxHealth, 0, 1)
 	local fill = gui.Back.Fill
 	fill.Size = UDim2.fromScale(fraction, 1)
 	fill.BackgroundColor3 = Color3.fromRGB(220, 60, 60):Lerp(Color3.fromRGB(80, 220, 80), fraction)
@@ -386,6 +394,7 @@ function Models.setLabel(model: Model, text: string)
 end
 
 function Models.setBounty(model: Model, amount: number)
+	model:SetAttribute("Bounty", amount)
 	local gui = model:FindFirstChild("Bounty")
 	if amount <= 0 then
 		if gui then
@@ -431,20 +440,6 @@ function Models.flash(model: Model)
 			body.Color = body:GetAttribute("BaseColor")
 		end
 	end)
-end
-
-function Models.shot(from: Vector3, to: Vector3, parent: Instance)
-	local distance = (to - from).Magnitude
-	local bolt = newPart(parent, {
-		Name = "Bolt",
-		Size = Vector3.new(0.2, 0.2, distance),
-		CFrame = CFrame.lookAt((from + to) / 2, to),
-		Color = Color3.fromRGB(255, 220, 90),
-		Material = Enum.Material.Neon,
-		CanQuery = false,
-		CastShadow = false,
-	})
-	Debris:AddItem(bolt, 0.12)
 end
 
 return Models

@@ -61,8 +61,10 @@ can switch later.
 ### Testing via MCP
 
 - `screen_capture` works during play; BillboardGuis may not show in captures.
-- `user_mouse_input` coordinates don't match capture pixels; prefer calling remotes from
-  `execute_luau` (datamodel `Client`) to exercise gameplay.
+- `user_mouse_input` coordinates don't match capture pixels, and `instance_path` only works for
+  GuiObjects (not 3D parts). Prefer calling remotes from `execute_luau` (datamodel `Client`) to
+  exercise gameplay. Client modules can be tested by requiring them in `execute_luau` (it gets a
+  fresh copy); destroy any GUI it creates afterwards.
 
 ## Communication
 

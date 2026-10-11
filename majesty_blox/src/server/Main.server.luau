@@ -30,17 +30,22 @@ local newCampaign = newRemote("RemoteFunction", "NewCampaign")
 local startMap = newRemote("RemoteFunction", "StartMap")
 local returnToMenu = newRemote("RemoteFunction", "ReturnToMenu")
 local placeBuilding = newRemote("RemoteFunction", "PlaceBuilding")
-local recruit = newRemote("RemoteFunction", "Recruit")
-local placeBounty = newRemote("RemoteFunction", "PlaceBounty")
+local performAction = newRemote("RemoteFunction", "PerformAction")
 local notifyRemote = newRemote("RemoteEvent", "Notify")
+local effectRemote = newRemote("RemoteEvent", "Effect")
 remotes.Parent = ReplicatedStorage
 
 local sessions: { [Player]: any } = {}
 local usedSlots: { [number]: Player } = {}
 
-local function notify(player: Player, text: string)
-	notifyRemote:FireClient(player, text)
-end
+local messaging = {
+	notify = function(player: Player, text: string)
+		notifyRemote:FireClient(player, text)
+	end,
+	effect = function(player: Player, kind: string, ...)
+		effectRemote:FireClient(player, kind, ...)
+	end,
+}
 
 local function onPlayerAdded(player: Player)
 	if player.Character then
@@ -49,7 +54,7 @@ local function onPlayerAdded(player: Player)
 	for slot = 1, PlayerSession.MAX_PLAYERS do
 		if not usedSlots[slot] then
 			usedSlots[slot] = player
-			sessions[player] = PlayerSession.new(player, slot, notify)
+			sessions[player] = PlayerSession.new(player, slot, messaging)
 			return
 		end
 	end
@@ -126,21 +131,12 @@ placeBuilding.OnServerInvoke = function(player, kind, position)
 	end)
 end
 
-recruit.OnServerInvoke = function(player, heroKind)
-	if typeof(heroKind) ~= "string" then
+performAction.OnServerInvoke = function(player, target, actionId)
+	if typeof(target) ~= "Instance" or typeof(actionId) ~= "string" then
 		return false, "Invalid request"
 	end
 	return withKingdom(player, function(kingdom)
-		return kingdom:tryRecruit(heroKind)
-	end)
-end
-
-placeBounty.OnServerInvoke = function(player, target)
-	if typeof(target) ~= "Instance" then
-		return false, "Invalid request"
-	end
-	return withKingdom(player, function(kingdom)
-		return kingdom:tryPlaceBounty(target)
+		return kingdom:tryAction(target, actionId)
 	end)
 end
 

@@ -29,6 +29,7 @@ Config.Buildings = {
 		Size = Vector3.new(16, 10, 16),
 		Buildable = true,
 		HeroCapacity = 4,
+		Actions = { "RecruitWarrior" },
 	},
 	GuardTower = {
 		DisplayName = "Guard Tower",
@@ -39,13 +40,13 @@ Config.Buildings = {
 		Range = 35,
 		Damage = 8,
 		Cooldown = 1.5,
+		ArrowSpeed = 60, -- studs per second; damage lands when the arrow arrives
 	},
 }
 
 Config.Heroes = {
 	Warrior = {
 		DisplayName = "Warrior",
-		Cost = 60,
 		Guild = "WarriorGuild",
 		MaxHealth = 100,
 		Damage = 12,
@@ -73,6 +74,7 @@ Config.Enemies = {
 		Speed = 9,
 		AggroRange = 25,
 		GoldReward = 10,
+		Actions = { "PlaceBounty" },
 	},
 }
 
@@ -86,6 +88,23 @@ Config.DenDefaults = {
 	SpawnInterval = 10,
 	MaxAlive = 6,
 	GoldReward = 100,
+	Actions = { "PlaceBounty" },
+}
+
+-- Actions shown in the selection panel. Which kinds offer which action is set by the
+-- `Actions` list on each building / enemy / den definition above.
+-- Server handlers live in server/ActionHandlers.luau.
+Config.Actions = {
+	RecruitWarrior = {
+		DisplayName = "Recruit Warrior",
+		Description = "Hire a warrior who hunts monsters for gold.",
+		Cost = 60,
+	},
+	PlaceBounty = {
+		DisplayName = "Place Bounty",
+		Description = "Reward heroes for defeating this target.",
+		Cost = Config.BOUNTY_AMOUNT,
+	},
 }
 
 -- Map decoration that blocks building and movement.

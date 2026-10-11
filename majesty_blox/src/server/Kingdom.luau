@@ -3,8 +3,10 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Config = require(ReplicatedStorage.Shared.Config)
+local Actions = require(ReplicatedStorage.Shared.Actions)
 local BuildRules = require(ReplicatedStorage.Shared.BuildRules)
+local Config = require(ReplicatedStorage.Shared.Config)
+local ActionHandlers = require(script.Parent.ActionHandlers)
 local MapContext = require(script.Parent.MapContext)
 local Models = require(script.Parent.Models)
 local Units = require(script.Parent.Units)
@@ -26,6 +28,7 @@ end
 
 -- folder: the player's (empty) kingdom folder in Workspace
 -- callbacks.notify(text) shows a message to the player
+-- callbacks.effect(kind, ...) plays a client-side visual effect (see client/Effects.luau)
 -- callbacks.onFinished(result, text) is called once with "Victory" or "Defeat"
 function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callbacks)
 	local self = setmetatable({}, Kingdom)
@@ -48,7 +51,6 @@ function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callb
 	self.heroesFolder = newFolder("Heroes", folder)
 	self.enemiesFolder = newFolder("Enemies", folder)
 	self.obstaclesFolder = newFolder("Obstacles", folder)
-	self.effectsFolder = newFolder("Effects", folder)
 
 	local ground = Instance.new("Part")
 	ground.Name = "Ground"
@@ -111,6 +113,9 @@ end
 function Kingdom:_register(entity)
 	table.insert(self.entities, entity)
 	self.byModel[entity.model] = entity
+	if entity.maxHealth ~= math.huge then
+		Models.setHealth(entity.model, entity.health, entity.maxHealth)
+	end
 	return entity
 end
 
@@ -118,6 +123,7 @@ function Kingdom:_addBuilding(kind: string, position: Vector3)
 	local def = Config.Buildings[kind]
 	local model = Models.makeBuilding(kind, CFrame.new(position))
 	model:SetAttribute("Side", "Kingdom")
+	model:SetAttribute("DisplayName", def.DisplayName)
 	Models.addHealthBar(model, def.Size.Y + 3, def.DisplayName)
 	model.Parent = self.buildingsFolder
 	return self:_register({
@@ -151,6 +157,7 @@ function Kingdom:addDen(def)
 	local name = get("DisplayName")
 	local model = Models.makeBuilding("Den", CFrame.new(position))
 	model:SetAttribute("Side", "Enemy")
+	model:SetAttribute("DisplayName", name)
 	Models.addHealthBar(model, defaults.Size.Y + 3, name)
 	model.Parent = self.enemiesFolder
 	return self:_register({
@@ -197,10 +204,11 @@ function Kingdom:addObstacle(kind: string, position: Vector3)
 end
 
 local function newUnit(kind: string, def, position: Vector3)
-	local model, heightOffset, barOffset = Models.makeUnit(kind)
+	local model, heightOffset, barOffset, weapon = Models.makeUnit(kind)
 	return {
 		kind = kind,
 		model = model,
+		weapon = weapon,
 		pos = position,
 		facing = Vector3.new(0, 0, -1),
 		heightOffset = heightOffset,
@@ -219,10 +227,12 @@ local function newUnit(kind: string, def, position: Vector3)
 	}
 end
 
-function Kingdom:_spawnHero(kind: string, position: Vector3)
+-- home: the guild entity the hero belongs to (counts toward its capacity)
+function Kingdom:spawnHero(kind: string, position: Vector3, home)
 	local hero = newUnit(kind, Config.Heroes[kind], position)
 	hero.category = "Hero"
 	hero.side = "Kingdom"
+	hero.home = home
 	hero.state = "Idle"
 	hero.wanderTimer = 0
 	hero.name = HERO_NAMES[math.random(#HERO_NAMES)]
@@ -230,6 +240,7 @@ function Kingdom:_spawnHero(kind: string, position: Vector3)
 	hero.kills = 0
 	hero.gold = 0
 	hero.model:SetAttribute("Side", "Kingdom")
+	hero.model:SetAttribute("DisplayName", hero.name)
 	Models.addHealthBar(hero.model, hero.barOffset, "")
 	Units.refreshLabel(hero)
 	Units.place(hero)
@@ -249,6 +260,7 @@ function Kingdom:spawnEnemy(kind: string, position: Vector3, den)
 	enemy.goldReward = def.GoldReward
 	enemy.den = den
 	enemy.model:SetAttribute("Side", "Enemy")
+	enemy.model:SetAttribute("DisplayName", def.DisplayName)
 	Models.addHealthBar(enemy.model, enemy.barOffset, def.DisplayName)
 	Units.place(enemy)
 	enemy.model.Parent = self.enemiesFolder
@@ -287,10 +299,20 @@ function Kingdom:countCategory(category: string): number
 	end)
 end
 
-function Kingdom:_heroCapacity(): number
+function Kingdom:heroesOf(guild): number
 	return self:count(function(e)
-		return e.kind == "WarriorGuild"
-	end) * Config.Buildings.WarriorGuild.HeroCapacity
+		return e.home == guild
+	end)
+end
+
+function Kingdom:_heroCapacity(): number
+	local total = 0
+	for _, e in self.entities do
+		if e.alive and e.category == "Building" then
+			total += Config.Buildings[e.kind].HeroCapacity or 0
+		end
+	end
+	return total
 end
 
 -- Combat
@@ -301,7 +323,7 @@ function Kingdom:damage(target, amount: number, attacker)
 	end
 	target.health -= amount
 	Models.flash(target.model)
-	Models.setHealth(target.model, target.health / target.maxHealth)
+	Models.setHealth(target.model, target.health, target.maxHealth)
 	if target.health <= 0 then
 		self:_kill(target, attacker)
 	end
@@ -426,57 +448,30 @@ function Kingdom:tryPlaceBuilding(kind: string, position: Vector3): (boolean, st
 	return true, def.DisplayName .. " built!"
 end
 
-function Kingdom:tryRecruit(heroKind: string): (boolean, string)
+-- Runs a selection-panel action (see Config.Actions / ActionHandlers) on the object `model`.
+function Kingdom:tryAction(model: Instance, actionId: string): (boolean, string)
 	if self.state ~= "Playing" then
 		return false, "The battle is over"
 	end
-	local def = Config.Heroes[heroKind]
-	if not def then
-		return false, "Unknown hero"
+	local target = self.byModel[model]
+	if not target or not target.alive then
+		return false, "That is no longer there"
 	end
-
-	local guilds = {}
-	for _, e in self.entities do
-		if e.alive and e.kind == def.Guild then
-			table.insert(guilds, e)
-		end
-	end
-	if #guilds == 0 then
-		return false, "Build a " .. Config.Buildings[def.Guild].DisplayName .. " first"
-	end
-	if self:countCategory("Hero") >= self:_heroCapacity() then
-		return false, "Your guilds are full. Build another guild!"
+	local def = Config.Actions[actionId]
+	local handler = ActionHandlers[actionId]
+	if not def or not handler or not Actions.has(target.kind, actionId) then
+		return false, "You can't do that here"
 	end
 	if self.gold < def.Cost then
 		return false, "Not enough gold"
 	end
 
-	self.gold -= def.Cost
-	local guild = guilds[math.random(#guilds)]
-	local spawn = guild.pos + Vector3.new(math.random(-3, 3), 0, guild.radius + 2)
-	local hero = self:_spawnHero(heroKind, spawn)
-	self:_sync()
-	self:_runHook("onHeroRecruited", hero)
-	return true, string.format("%s the %s joins your kingdom!", hero.name, def.DisplayName)
-end
-
-function Kingdom:tryPlaceBounty(model: Instance): (boolean, string)
-	if self.state ~= "Playing" then
-		return false, "The battle is over"
+	local ok, message = handler(self, target)
+	if ok then
+		self.gold -= def.Cost
+		self:_sync()
 	end
-	local target = self.byModel[model]
-	if not target or not target.alive or target.side ~= "Enemy" then
-		return false, "Pick an enemy or a den"
-	end
-	if self.gold < Config.BOUNTY_AMOUNT then
-		return false, "Not enough gold"
-	end
-
-	self.gold -= Config.BOUNTY_AMOUNT
-	target.bounty += Config.BOUNTY_AMOUNT
-	Models.setBounty(target.model, target.bounty)
-	self:_sync()
-	return true, string.format("Bounty placed! Total reward: %dg", target.bounty)
+	return ok, message
 end
 
 -- Simulation
@@ -568,6 +563,26 @@ function Kingdom:_sync()
 	for name, value in values do
 		if player:GetAttribute(name) ~= value then
 			player:SetAttribute(name, value)
+		end
+	end
+
+	-- Per-guild hero counts for the selection panel
+	local heroesByHome = {}
+	for _, e in self.entities do
+		if e.alive and e.home then
+			heroesByHome[e.home] = (heroesByHome[e.home] or 0) + 1
+		end
+	end
+	for _, e in self.entities do
+		if e.alive and e.category == "Building" then
+			local capacity = Config.Buildings[e.kind].HeroCapacity
+			if capacity then
+				local count = heroesByHome[e] or 0
+				if e.model:GetAttribute("Heroes") ~= count then
+					e.model:SetAttribute("Heroes", count)
+					e.model:SetAttribute("HeroCapacity", capacity)
+				end
+			end
 		end
 	end
 end

@@ -13,11 +13,27 @@ Sync with `tools\sync-server.ps1 -Project majesty_blox` (see root `CLAUDE.md`).
   - `Campaign` — ordered list of map ids; `Progress` — DataStore save of highest unlocked map
   - `Kingdom` — one map being played: entities, economy, actions, combat, map hooks, timers
   - `MapContext` — the API map scripts use (documented at the top of the file)
+  - `ActionHandlers` — server logic for selection-panel actions
   - `Units` — hero/enemy/tower AI; `Models` — blocky visuals, billboards, effects
   - `Maps/<Id>/Map.luau` (+ any extra modules in that folder) — map data and custom logic
 - Client (`src/client`): `Main` (phase switching), `Menu` (main menu, result screen),
-  `UI` (in-game HUD), `CameraController`, `Placement` (build ghost + bounty picking).
-- Shared (`src/shared`): `Config` (balance values), `BuildRules` (placement validation).
+  `UI` (in-game HUD: build bar), `Selection` (selected object panel with actions),
+  `CameraController`, `Placement` (owns world mouse input: build ghost, bounty tool, selection clicks).
+- Shared (`src/shared`): `Config` (balance values, action definitions), `Actions` (which kind
+  offers which action), `BuildRules` (placement validation).
+
+## Selection & actions
+
+Clicking a building, hero or enemy selects it and opens a panel (info + action buttons).
+Actions are generic: `Config.Actions[id]` holds name/description/cost, each building/enemy/den
+definition lists its `Actions = { ... }`, and `ActionHandlers[id](kingdom, target)` does the work.
+The client calls `PerformAction(model, actionId)`; `Kingdom:tryAction` validates the kind offers
+the action and the player can afford it, runs the handler, and charges only on success.
+To add an action (e.g. a guild upgrade): add it to `Config.Actions`, list it on the building,
+write the handler, and add any special enable/label logic in `Selection:_refresh`.
+Objects expose state to the panel via model attributes: `Kind`, `DisplayName`, `Side`,
+`Health`, `MaxHealth`, `Bounty`, guild `Heroes`/`HeroCapacity`, hero `Level`/`Kills`/`Gold`/`Damage`.
+Heroes belong to the guild that recruited them (`hero.home`), which caps them per guild.
 
 ## Maps
 
@@ -40,8 +56,16 @@ Max map size is `Config.MAX_MAP_SIZE` (plots are 300 studs apart).
 - Players have no character (`CharacterAutoLoads = false`); `player.ReplicationFocus` is set
   to the plot ground because StreamingEnabled is on.
 - Units are anchored models moved by the server on a flat plane (no Humanoids/physics).
+  Melee attacks are a server-side swing (`unit.swing`, animated in `Units.place` via the
+  weapon info from `Models.makeUnit`); damage lands at the impact point of the swing.
+- Projectiles are client-side: the server fires the `Effect` remote (`"Arrow", from, targetModel,
+  flightTime`) and schedules damage with `kingdom:addTimer(flightTime)`; `client/Effects.luau`
+  draws the arrow. Add new effects to `Effects.luau`'s `BY_KIND` table.
+- Buttons the player can't afford are disabled (ignore clicks) in both the build bar and the
+  selection panel. Buildings with `Range` show a `RangeRing` while placing and when selected.
 - Remotes in `ReplicatedStorage.Remotes`: `GetCampaign`, `NewCampaign`, `StartMap`,
-  `ReturnToMenu`, `PlaceBuilding`, `Recruit`, `PlaceBounty` (RemoteFunctions) and `Notify`.
+  `ReturnToMenu`, `PlaceBuilding`, `PerformAction` (RemoteFunctions), `Notify` and `Effect`
+  (RemoteEvents).
 - DataStore only works in a published place; in Studio progress is memory-only (expected warning).
 - Dev aid: `workspace:SetAttribute("DevUnlockAll", true)` in Edit mode unlocks all maps,
   Studio only. Remove it after testing so it isn't saved into the place.

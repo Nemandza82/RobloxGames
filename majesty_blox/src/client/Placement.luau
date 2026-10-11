@@ -1,4 +1,7 @@
--- Mouse interaction modes: placing a building (ghost preview) and placing a bounty on an enemy.
+-- Owns world mouse input. Modes:
+--   build  — ghost preview of a building, click to place
+--   bounty — pick an enemy or den, click to place a bounty
+--   (none) — clicks select objects (forwarded to onSelect)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,25 +12,32 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local BuildRules = require(Shared:WaitForChild("BuildRules"))
+local RangeRing = require(script.Parent.RangeRing)
 
 local VALID_COLOR = Color3.fromRGB(80, 220, 80)
 local INVALID_COLOR = Color3.fromRGB(230, 60, 60)
-local BOUNTY_PICK_RADIUS = 6
+local PICK_RADIUS = 6 -- small units are hard to click from above; pick the nearest within this range
+local SELECTABLE_FOLDERS = { "Buildings", "Heroes", "Enemies" }
 
 local player = Players.LocalPlayer
 
 local Placement = {}
 Placement.__index = Placement
 
--- toast(text) shows a message, setHint(text?) sets the hint line (nil = default).
-function Placement.new(remotes: Folder, toast, setHint)
+-- callbacks:
+--   toast(text)           show a message
+--   setHint(text?)        set the hint line (nil = default)
+--   onSelect(model?)      a click in idle mode hit this object (nil = empty ground)
+--   onCancel()            Esc / right-click in idle mode
+function Placement.new(remotes: Folder, callbacks)
 	local self = setmetatable({}, Placement)
 	self.origin = Vector3.zero
 	self.plotSize = Vector2.zero
 	self.remotes = remotes
-	self.toast = toast
-	self.setHint = setHint
+	self.callbacks = callbacks
 	self.mode = nil
+	self.enabled = false
+	self.rangeRing = RangeRing.new(Color3.fromRGB(255, 220, 90))
 	self.kingdomFolder = Workspace:WaitForChild("Kingdoms"):WaitForChild(tostring(player.UserId))
 
 	RunService.RenderStepped:Connect(function()
@@ -43,6 +53,14 @@ function Placement:setMap(origin: Vector3, plotSize: Vector2)
 	self:cancel()
 	self.origin = origin
 	self.plotSize = plotSize
+end
+
+-- Input is ignored while menus are open.
+function Placement:setEnabled(enabled: boolean)
+	self.enabled = enabled
+	if not enabled then
+		self:cancel()
+	end
 end
 
 function Placement:_mouseRay(): Ray
@@ -80,21 +98,28 @@ function Placement:_footprints()
 	return list
 end
 
--- The enemy model under the mouse, or the nearest one to where the mouse points.
-function Placement:_enemyUnderMouse(): Model?
-	local enemies = self.kingdomFolder:FindFirstChild("Enemies")
-	if not enemies then
+-- The object (direct child of one of `folderNames`) under the mouse, or the nearest one to
+-- where the mouse points on the ground.
+function Placement:_pick(folderNames: { string }): Model?
+	local folders = {}
+	for _, name in folderNames do
+		local folder = self.kingdomFolder:FindFirstChild(name)
+		if folder then
+			table.insert(folders, folder)
+		end
+	end
+	if #folders == 0 then
 		return nil
 	end
 
 	local ray = self:_mouseRay()
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
-	params.FilterDescendantsInstances = { enemies }
+	params.FilterDescendantsInstances = folders
 	local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
 	if hit then
 		local model = hit.Instance:FindFirstAncestorOfClass("Model")
-		while model and model.Parent ~= enemies do
+		while model and not table.find(folders, model.Parent) do
 			model = model:FindFirstAncestorOfClass("Model")
 		end
 		if model then
@@ -106,13 +131,15 @@ function Placement:_enemyUnderMouse(): Model?
 	if not point then
 		return nil
 	end
-	local best, bestDist = nil, BOUNTY_PICK_RADIUS
-	for _, model in enemies:GetChildren() do
-		if model.PrimaryPart then
-			local offset = model.PrimaryPart.Position - point
-			local dist = Vector3.new(offset.X, 0, offset.Z).Magnitude
-			if dist < bestDist then
-				best, bestDist = model, dist
+	local best, bestDist = nil, PICK_RADIUS
+	for _, folder in folders do
+		for _, model in folder:GetChildren() do
+			if model.PrimaryPart then
+				local offset = model.PrimaryPart.Position - point
+				local dist = Vector3.new(offset.X, 0, offset.Z).Magnitude
+				if dist < bestDist then
+					best, bestDist = model, dist
+				end
 			end
 		end
 	end
@@ -137,7 +164,7 @@ function Placement:startBuild(kind: string)
 	self.kind = kind
 	self.ghost = ghost
 	self.valid = false
-	self.setHint(string.format("Click to place %s  ·  Right-click or Esc to cancel", Config.Buildings[kind].DisplayName))
+	self.callbacks.setHint(string.format("Click to place %s  ·  Right-click or Esc to cancel", Config.Buildings[kind].DisplayName))
 end
 
 function Placement:startBounty()
@@ -152,20 +179,23 @@ function Placement:startBounty()
 	self.mode = "bounty"
 	self.highlight = highlight
 	self.hover = nil
-	self.setHint("Click an enemy or the goblin den to place a bounty  ·  Right-click or Esc to cancel")
+	self.callbacks.setHint("Click an enemy or a den to place a bounty  ·  Right-click or Esc to cancel")
 end
 
 function Placement:cancel()
 	if self.ghost then
 		self.ghost:Destroy()
 		self.ghost = nil
+		self.rangeRing:hide()
 	end
 	if self.highlight then
 		self.highlight:Destroy()
 		self.highlight = nil
 	end
-	self.mode = nil
-	self.setHint(nil)
+	if self.mode then
+		self.mode = nil
+		self.callbacks.setHint(nil)
+	end
 end
 
 function Placement:_update()
@@ -182,8 +212,9 @@ function Placement:_update()
 			and BuildRules.isValid(self.kind, snapped, self.origin, self.plotSize, self:_footprints())
 		self.ghost.Color = if self.valid then VALID_COLOR else INVALID_COLOR
 		self.target = snapped
+		self.rangeRing:show(snapped, Config.Buildings[self.kind].Range)
 	elseif self.mode == "bounty" then
-		self.hover = self:_enemyUnderMouse()
+		self.hover = self:_pick({ "Enemies" })
 		-- A Highlight without an Adornee would highlight its parent (the whole Workspace)
 		self.highlight.Adornee = self.hover
 		self.highlight.Enabled = self.hover ~= nil
@@ -191,11 +222,16 @@ function Placement:_update()
 end
 
 function Placement:_onInput(input: InputObject, processed: boolean)
-	if not self.mode then
+	if not self.enabled then
 		return
 	end
-	if input.KeyCode == Enum.KeyCode.Escape or input.UserInputType == Enum.UserInputType.MouseButton2 then
-		self:cancel()
+	local isCancel = input.KeyCode == Enum.KeyCode.Escape or input.UserInputType == Enum.UserInputType.MouseButton2
+	if isCancel then
+		if self.mode then
+			self:cancel()
+		else
+			self.callbacks.onCancel()
+		end
 		return
 	end
 	if processed or input.UserInputType ~= Enum.UserInputType.MouseButton1 then
@@ -204,22 +240,24 @@ function Placement:_onInput(input: InputObject, processed: boolean)
 
 	if self.mode == "build" then
 		if not self.valid then
-			self.toast("You can't build there")
+			self.callbacks.toast("You can't build there")
 			return
 		end
 		local kind, target = self.kind, self.target
 		self:cancel()
 		local _, message = self.remotes.PlaceBuilding:InvokeServer(kind, target)
-		self.toast(message)
+		self.callbacks.toast(message)
 	elseif self.mode == "bounty" then
 		local target = self.hover
 		if not target then
-			self.toast("Click on an enemy or the goblin den")
+			self.callbacks.toast("Click on an enemy or a den")
 			return
 		end
 		self:cancel()
-		local _, message = self.remotes.PlaceBounty:InvokeServer(target)
-		self.toast(message)
+		local _, message = self.remotes.PerformAction:InvokeServer(target, "PlaceBounty")
+		self.callbacks.toast(message)
+	else
+		self.callbacks.onSelect(self:_pick(SELECTABLE_FOLDERS))
 	end
 end
 
