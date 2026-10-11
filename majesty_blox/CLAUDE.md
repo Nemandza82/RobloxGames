@@ -76,6 +76,10 @@ Den entries can set `Enemy` (Goblin, Wolf), `DisplayName`, spawn values and `Dis
   so they never replicate (no client-side cheating). Dens stay visible once discovered.
 - The client draws fog (`client/FogRenderer.luau`): full state via `GetFog`, increments via the
   `Fog` remote, both tagged with the `MapToken` attribute so stale updates are ignored.
+  Rendering is a flat plane with an EditableImage mask (soft edges) on a SurfaceGui; map
+  objects in unexplored cells are hidden locally (`LocalTransparencyModifier`). Falls back to
+  flat tiles if EditableImage is unavailable (published games need "Allow Mesh & Image APIs").
+  Gotcha: a Top-face SurfaceGui is rotated 90° — image horizontal = world −Z, vertical = +X.
 - Explore flags (`PlaceExploreFlag`, category `"Flag"`, `noCollide`) are bounties on a spot:
   a hero who reaches it claims the reward. Heroes pick bounties by reward / (distance + bias).
 - Bounties are placed from the selection panel: select an enemy, den or explore flag, pick the

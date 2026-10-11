@@ -14,7 +14,6 @@ Config.BUILD_RADIUS = 70 -- buildings must be placed within this distance of the
 Config.Fog = {
 	CellSize = 10,
 	UpdateInterval = 0.25,
-	Height = 18, -- tall enough to hide trees and dens
 	CastleSight = 60,
 	BuildingSight = 28,
 	HeroSight = 26,

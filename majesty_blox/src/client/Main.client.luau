@@ -50,8 +50,10 @@ local fog = FogRenderer.new()
 
 -- Builds the fog for the new map, then fetches everything explored so far.
 -- Incremental updates (Fog remote) are tagged with MapToken so stale ones are ignored.
+local kingdomFolder = workspace:WaitForChild("Kingdoms"):WaitForChild(tostring(player.UserId))
+
 local function startFog(origin: Vector3, size: Vector2)
-	fog:setMap(origin, size, player:GetAttribute("FogCellSize") or 0)
+	fog:setMap(origin, size, player:GetAttribute("FogCellSize") or 0, kingdomFolder)
 	local token = player:GetAttribute("MapToken")
 	task.spawn(function()
 		local serverToken, cells = remotes.GetFog:InvokeServer()
