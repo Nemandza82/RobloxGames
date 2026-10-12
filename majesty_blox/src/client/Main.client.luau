@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CameraController = require(script.Parent.CameraController)
 local Effects = require(script.Parent.Effects)
 local FogRenderer = require(script.Parent.FogRenderer)
+local IntroCard = require(script.Parent.IntroCard)
 local Menu = require(script.Parent.Menu)
 local Placement = require(script.Parent.Placement)
 local Selection = require(script.Parent.Selection)
@@ -47,6 +48,7 @@ placement = Placement.new(remotes, {
 })
 
 local fog = FogRenderer.new()
+local introCard = IntroCard.new()
 
 -- Builds the fog for the new map, then fetches everything explored so far.
 -- Incremental updates (Fog remote) are tagged with MapToken so stale ones are ignored.
@@ -103,13 +105,18 @@ local function onPhaseChanged()
 		startFog(origin, size)
 		placement:setMap(origin, size)
 		placement:setEnabled(true)
+		hud:setBuildings(string.split(player:GetAttribute("UnlockedBuildings") or "", ","))
+		hud:setBlocked(player:GetAttribute("BlockedBuildings"))
+		hud:setGrace(player:GetAttribute("Grace"))
 		refreshObjective()
 		refreshStats()
 		hud:setVisible(true)
 		menu:hide()
+		introCard:show(player:GetAttribute("MapName") or "", player:GetAttribute("NewBuilding"), player:GetAttribute("NewEnemy"))
 		return
 	end
 
+	introCard:hide()
 	placement:setEnabled(false)
 	CameraController.setPanEnabled(false)
 	if phase == "Menu" then
@@ -125,7 +132,19 @@ for _, name in { "Gold", "Heroes", "HeroCap" } do
 	player:GetAttributeChangedSignal(name):Connect(refreshStats)
 end
 player:GetAttributeChangedSignal("Objective"):Connect(refreshObjective)
+player:GetAttributeChangedSignal("Grace"):Connect(function()
+	hud:setGrace(player:GetAttribute("Grace"))
+end)
+player:GetAttributeChangedSignal("BlockedBuildings"):Connect(function()
+	hud:setBlocked(player:GetAttribute("BlockedBuildings"))
+end)
 player:GetAttributeChangedSignal("Phase"):Connect(onPhaseChanged)
+-- MapToken changes on every map start, even if quick Phase changes get merged into one
+player:GetAttributeChangedSignal("MapToken"):Connect(function()
+	if player:GetAttribute("Phase") == "Playing" then
+		onPhaseChanged()
+	end
+end)
 
 remotes.Notify.OnClientEvent:Connect(toast)
 remotes.Effect.OnClientEvent:Connect(Effects.play)

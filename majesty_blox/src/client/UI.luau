@@ -14,9 +14,8 @@ local BUTTON_DISABLED = Color3.fromRGB(45, 45, 50)
 
 local DEFAULT_HINT = "WASD to move the camera  ·  Click buildings, enemies or flags for actions"
 
-local ACTIONS = {
-	{ id = "WarriorGuild", title = "Warrior Guild", cost = Config.Buildings.WarriorGuild.Cost },
-	{ id = "GuardTower", title = "Guard Tower", cost = Config.Buildings.GuardTower.Cost },
+-- Always-available tools after the (unlocked) building buttons
+local TOOLS = {
 	{ id = "Explore", title = "Explore Flag", cost = Config.ExploreFlag.InitialReward },
 }
 
@@ -105,6 +104,19 @@ function UI.new(onAction)
 		Parent = gui,
 	})
 
+	-- Peaceful-time countdown at the start of a map
+	self.graceLabel = textLabel({
+		Name = "Grace",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 74),
+		Size = UDim2.fromOffset(600, 20),
+		TextSize = 16,
+		TextColor3 = Color3.fromRGB(140, 230, 140),
+		TextStrokeTransparency = 0.3,
+		Text = "",
+		Parent = gui,
+	})
+
 	-- Action bar
 	local bar = make("Frame", {
 		Name = "ActionBar",
@@ -129,29 +141,10 @@ function UI.new(onAction)
 		}),
 	})
 
+	self.bar = bar
+	self.onAction = onAction
 	self.buttons = {}
-	for index, action in ACTIONS do
-		local button = make("TextButton", {
-			Name = action.id,
-			LayoutOrder = index,
-			Size = UDim2.fromOffset(130, 56),
-			BackgroundColor3 = BUTTON,
-			Font = Enum.Font.GothamBold,
-			TextSize = 15,
-			TextColor3 = WHITE,
-			RichText = true,
-			AutoButtonColor = true,
-			Parent = bar,
-		}, { corner(8) })
-		local entry = { button = button, action = action, enabled = false }
-		button.Activated:Connect(function()
-			if entry.enabled then
-				onAction(action.id)
-			end
-		end)
-		self.buttons[action.id] = entry
-	end
-	self:_refreshButtons()
+	self:setBuildings({})
 
 	self.hintLabel = textLabel({
 		AnchorPoint = Vector2.new(0.5, 1),
@@ -165,7 +158,7 @@ function UI.new(onAction)
 
 	self.toastLabel = textLabel({
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 80),
+		Position = UDim2.new(0.5, 0, 0, 98), -- below the peaceful-time countdown
 		Size = UDim2.fromOffset(600, 26),
 		TextSize = 20,
 		TextStrokeTransparency = 0.3,
@@ -189,6 +182,15 @@ function UI:setObjective(mapName: string?, objective: string?)
 	end
 end
 
+-- Seconds of peaceful time left (0 hides the countdown).
+function UI:setGrace(seconds: number?)
+	if seconds and seconds > 0 then
+		self.graceLabel.Text = string.format("Peaceful time: %ds  ·  Build your kingdom!", seconds)
+	else
+		self.graceLabel.Text = ""
+	end
+end
+
 function UI:refresh(gold: number, heroes: number, heroCap: number)
 	self.gold = gold
 	self.goldLabel.Text = string.format("Gold: %d", gold)
@@ -196,12 +198,67 @@ function UI:refresh(gold: number, heroes: number, heroCap: number)
 	self:_refreshButtons()
 end
 
-function UI:_refreshButtons()
+-- Rebuilds the action bar: one button per unlocked building (in Config.BuildOrder), then the tools.
+function UI:setBuildings(kinds: { string })
 	for _, entry in self.buttons do
+		entry.button:Destroy()
+	end
+	self.buttons = {}
+
+	local actions = {}
+	for _, kind in kinds do
+		local def = Config.Buildings[kind]
+		if def then
+			table.insert(actions, { id = kind, title = def.DisplayName, cost = def.Cost })
+		end
+	end
+	for _, tool in TOOLS do
+		table.insert(actions, tool)
+	end
+
+	for index, action in actions do
+		local button = make("TextButton", {
+			Name = action.id,
+			LayoutOrder = index,
+			Size = UDim2.fromOffset(130, 56),
+			BackgroundColor3 = BUTTON,
+			Font = Enum.Font.GothamBold,
+			TextSize = 15,
+			TextColor3 = WHITE,
+			RichText = true,
+			AutoButtonColor = true,
+			Parent = self.bar,
+		}, { corner(8) })
+		local entry = { button = button, action = action, enabled = false }
+		button.Activated:Connect(function()
+			if entry.enabled then
+				self.onAction(action.id)
+			end
+		end)
+		self.buttons[action.id] = entry
+	end
+	self:_refreshButtons()
+end
+
+-- Buildings that can't be built because their rival is already standing (comma-separated).
+function UI:setBlocked(kinds: string?)
+	self.blocked = {}
+	for _, kind in string.split(kinds or "", ",") do
+		self.blocked[kind] = true
+	end
+	self:_refreshButtons()
+end
+
+function UI:_refreshButtons()
+	local blocked = self.blocked or {}
+	for id, entry in self.buttons do
 		local cost = entry.action.cost
-		local enabled = self.gold >= cost
+		local enabled = self.gold >= cost and not blocked[id]
 		entry.enabled = enabled
-		entry.button.Text = string.format('%s\n<font color="#FFD250">%dg</font>', entry.action.title, cost)
+		local subtitle = if blocked[id]
+			then '<font color="#FF8070">Rival built</font>'
+			else string.format('<font color="#FFD250">%dg</font>', cost)
+		entry.button.Text = string.format("%s\n%s", entry.action.title, subtitle)
 		entry.button.BackgroundColor3 = if enabled then BUTTON else BUTTON_DISABLED
 		entry.button.TextTransparency = if enabled then 0 else 0.45
 		entry.button.AutoButtonColor = enabled

@@ -1,31 +1,23 @@
--- Map 2: a goblin den and a wolf lair in two different random corners of a large land,
--- with random forests, ponds and ruins. Default victory: destroy all dens.
+-- Map 2: Howling Hills. Two goblin dens and a wolf lair in random corners of a large land.
+-- Unlocks the Guard Tower and introduces wolves. Default victory: destroy all dens.
 
 return {
-	DisplayName = "Twin Dens",
-	Description = "Goblins and wolves threaten your new lands from opposite wilds. Scout the land and destroy both lairs.",
-	Objective = "Find and destroy the goblin den and the wolf lair",
+	DisplayName = "Howling Hills",
+	Description = "Wolves howl in the hills while goblins raid your borders. Fortify with towers and clear out every lair.",
+	Objective = "Destroy all monster lairs",
+	Unlocks = { Building = "GuardTower", Enemy = "Wolf" },
 
 	Size = Vector2.new(380, 380),
 	StartingGold = 400,
-	MaxBuildingLevel = 3,
+	MaxBuildingLevel = 2,
 
 	generate = function(kit)
-		local goblinDen = kit:pickSpot({ region = "corner", minFromCastle = 140 })
-		kit:den(goblinDen, { FirstSpawnDelay = 30, SpawnInterval = 12, MaxAlive = 5 })
-		local wolfLair = kit:pickSpot({ region = "corner", minFromCastle = 140, minFromDens = 180 })
-		kit:den(wolfLair, {
-			DisplayName = "Wolf Lair",
-			Enemy = "Wolf",
-			FirstSpawnDelay = 45,
-			SpawnInterval = 9,
-			MaxAlive = 6,
-			MaxHealth = 350,
-		})
-
 		kit:keepClear(Vector3.zero, 80)
-		kit:keepPathOpen(Vector3.zero, goblinDen, 22)
-		kit:keepPathOpen(Vector3.zero, wolfLair, 22)
+		kit:placeDens({
+			{ Enemy = "Goblin", SpawnInterval = 13, MaxAlive = 4, MinLevel = 1, MaxLevel = 2 },
+			{ Enemy = "Goblin", SpawnInterval = 13, MaxAlive = 4, MinLevel = 1, MaxLevel = 2 },
+			{ Enemy = "Wolf", SpawnInterval = 10, MaxAlive = 5, MaxHealth = 350, MinLevel = 1, MaxLevel = 2 },
+		}, { minFromCastle = 140, firstSpawn = 10, pathWidth = 22 })
 
 		kit:randomRoads({ 2, 4 })
 		kit:randomPatches({ 4, 7 })
@@ -39,7 +31,7 @@ return {
 
 	onEntityKilled = function(ctx, entity)
 		if entity.category == "Den" and ctx:count("Den") == 1 then
-			ctx:notify("One lair down, one to go!")
+			ctx:notify("One lair left!")
 		end
 	end,
 }

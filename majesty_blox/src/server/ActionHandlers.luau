@@ -10,14 +10,16 @@ local Models = require(script.Parent.Models)
 
 local ActionHandlers = {}
 
-function ActionHandlers.RecruitWarrior(kingdom, guild)
+-- Hires the hero class this guild trains (Config.Buildings[kind].Recruits).
+function ActionHandlers.Recruit(kingdom, guild)
 	if kingdom:heroesOf(guild) >= guild.stats.HeroCapacity then
 		return false, "This guild is full"
 	end
+	local heroKind = guild.stats.Recruits
 	local spawn = guild.pos + Vector3.new(math.random(-3, 3), 0, guild.radius + 2)
-	local hero = kingdom:spawnHero("Warrior", spawn, guild)
+	local hero = kingdom:spawnHero(heroKind, spawn, guild)
 	kingdom:_runHook("onHeroRecruited", hero)
-	return true, string.format("%s the Warrior joins your kingdom!", hero.name)
+	return true, string.format("%s the %s joins your kingdom!", hero.name, hero.def.DisplayName)
 end
 
 function ActionHandlers.Upgrade(kingdom, building)
@@ -26,6 +28,9 @@ end
 
 -- Adds to the reward on an enemy, den or explore flag.
 function ActionHandlers.PlaceBounty(kingdom, target, amount: number)
+	if target.side ~= "Enemy" and target.category ~= "Flag" then
+		return false, "You can't put a bounty on your own side"
+	end
 	target.bounty += amount
 	local isFlag = target.category == "Flag"
 	Models.setBounty(target.model, target.bounty, if isFlag then "EXPLORE" else "BOUNTY")

@@ -2,9 +2,12 @@
 -- and the game phase shown by the client.
 --
 -- Player attributes set here (read by the client):
---   Phase        "Menu" | "Playing" | "Victory" | "Defeat" | "CampaignComplete"
+--   Phase        "Menu" | "Loading" | "Playing" | "Victory" | "Defeat" | "CampaignComplete"
 --   MapIndex, MapName, Objective, ResultText, PlotOrigin (Vector3), PlotSize (Vector2)
 --   MapToken     increases every time a map starts (tags fog updates for that map)
+--   MapSeed      the random layout seed
+--   UnlockedBuildings  comma-separated building kinds the player may build on this map
+--   NewBuilding, NewEnemy  what this map introduces ("" if nothing), shown on the intro card
 -- Kingdom also sets CastlePos, BuildRadius and FogCellSize.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -93,6 +96,9 @@ function PlayerSession:startMap(index: number): (boolean, string)
 	self.mapIndex = index
 
 	local player = self.player
+	-- Always pass through Loading so the client sees a Phase change even when going
+	-- from one map straight into another
+	player:SetAttribute("Phase", "Loading")
 	self.mapToken += 1
 	local token = self.mapToken
 	player:SetAttribute("MapToken", token)
@@ -108,6 +114,13 @@ function PlayerSession:startMap(index: number): (boolean, string)
 	end
 	player:SetAttribute("MapSeed", seed)
 
+	-- Unlocked buildings (build bar) and what this map introduces (intro card)
+	local buildings = Campaign.unlockedBuildings(index)
+	local newBuildings, newEnemy = Campaign.newContent(index)
+	player:SetAttribute("UnlockedBuildings", table.concat(buildings, ","))
+	player:SetAttribute("NewBuilding", table.concat(newBuildings, ","))
+	player:SetAttribute("NewEnemy", newEnemy or "")
+
 	self.kingdom = Kingdom.new(player, self.folder, self.origin, map, {
 		notify = function(text)
 			self.messaging.notify(player, text)
@@ -121,7 +134,7 @@ function PlayerSession:startMap(index: number): (boolean, string)
 		onFinished = function(result, text)
 			self:_onFinished(result, text)
 		end,
-	}, seed)
+	}, seed, buildings)
 	-- Phase last: the client reads the other attributes when the phase changes
 	player:SetAttribute("Phase", "Playing")
 	return true, map.DisplayName

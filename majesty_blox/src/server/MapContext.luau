@@ -39,6 +39,11 @@ function MapContext:elapsed(): number
 	return self._kingdom.elapsed
 end
 
+-- Seconds of peaceful time left at the start of the map (scripted attacks should wait for it).
+function MapContext:graceRemaining(): number
+	return self._kingdom:graceRemaining()
+end
+
 -- Runs fn once after `seconds` of game time. Returns a handle with :cancel().
 function MapContext:after(seconds: number, fn)
 	local timer = self._kingdom:addTimer(seconds, fn)
@@ -81,8 +86,9 @@ end
 
 -- Spawning
 
-function MapContext:spawnEnemy(kind: string, position: Vector3)
-	return self._kingdom:spawnEnemy(kind, self:_toWorld(position))
+-- level: monster level (default 1)
+function MapContext:spawnEnemy(kind: string, position: Vector3, level: number?)
+	return self._kingdom:spawnEnemy(kind, self:_toWorld(position), nil, level)
 end
 
 -- def: same format as a den entry in the map's Dens list
@@ -108,6 +114,11 @@ function MapContext:randomEdgePoint(side: string?): Vector3
 	else
 		return Vector3.new(-halfX, 0, math.random(-halfZ, halfZ))
 	end
+end
+
+-- Custom data the map's generate() stored with kit.data (e.g. where the boss lives).
+function MapContext:getData()
+	return self._kingdom.layout.Data or {}
 end
 
 -- Fog of war

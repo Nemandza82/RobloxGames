@@ -22,6 +22,76 @@ Sync with `tools\sync-server.ps1 -Project majesty_blox` (see root `CLAUDE.md`).
 - Shared (`src/shared`): `Config` (balance values, action definitions), `Actions` (which kind
   offers which action), `BuildRules` (placement validation).
 
+## Campaign progression (unlocks)
+
+Each map may unlock one building and introduce one enemy: `Unlocks = { Building, Enemy }` in its
+`Map.luau`. `Campaign.unlockedBuildings(index)` is everything unlocked up to that map (sent as the
+`UnlockedBuildings` attribute; the build bar shows only those, in `Config.BuildOrder`, and
+`Kingdom:tryPlaceBuilding` rejects others). `NewBuilding` / `NewEnemy` attributes drive the
+intro card (`client/IntroCard.luau`) shown when the map starts. Plan: ~20 maps unlocking a
+building each (heroes alternate with utility buildings), then maps without new buildings up to 49/99.
+Current order: 1 Green Valley (Warrior Guild, Goblin), 2 Howling Hills (Guard Tower, Wolf),
+3 Spider Woods (Tavern, Spider), 4 Bandit Hills (Ranger Lodge, Bandit), 5 Shaman's Marsh
+(Marketplace, Goblin Shaman), 6 Haunted Barrows (Rogue Hideout, Skeleton), 7 Goblin King's
+Fortress (Blacksmith, Goblin King boss — victory = boss dead), 8 Harpy Cliffs (Temple of Light OR
+Dark Altar, Harpy), 9 Troll Bridge (Wizard Tower, Troll), 10 Orc Warcamp (Library, Orc),
+11 Wraith Moor (Barbarian Totem OR Monastery, Wraith), 12 Minotaur Maze (Training Grounds,
+Minotaur), 13 Ogre Valley (Dwarven Hall, Ogre), 14 Lich's Crypt (Guard House, Lich boss),
+15 Vampire Forest (Elven Lodge, Vampire), 16 Golem Quarry (Statue of Valor, Golem), 17 Wyvern
+Peaks (Cathedral, Wyvern — last new building), 18 Demon Gate (Demon), 19 Siege of the Horde
+(map id GoblinSiege; mixed waves), 20 Dragon's Peak (Dragon boss). Boss maps use
+`Maps/BossMap.luau` (`placeLair` — place it before other dens so it gets a corner, `onStart`,
+`checkVictory`). A map can unlock a rival pair with
+`Unlocks = { Buildings = { ... } }`; `Config.ExclusiveGroups` blocks the rival once one is built
+(`BlockedBuildings` attribute, build bar shows "Rival built").
+
+## Heroes, abilities, dens
+
+- Hero classes in `Config.Heroes` (Warrior, Ranger). A guild building sets `Recruits = "<class>"`
+  and offers the generic `Recruit` action (cost = the hero's `Cost`); 4 heroes per guild.
+  Personality: `ExploreBias` / `GreedBias` scale how attractive flags / bounties are.
+  `Ranged` heroes shoot arrows (client effect + timed damage) instead of swinging.
+- Guild upgrades grant abilities (`Levels[n].Ability`, defined in `Config.Abilities`): Warrior
+  Shield Wall / Cleave, Ranger Eagle Eye / Volley. `Kingdom:_refreshAbilities` puts them on
+  `hero.abilities`; effects live in `Units` (`onHit`, `shoot`, `refreshRange`) and `Kingdom:damage`.
+- Monsters have levels (`Config.MonsterLevel` scaling, label "Lv N Name"). Dens spawn
+  MinLevel..MaxLevel, plus `denGrowth` that rises every `DEN_GROWTH_INTERVAL` (capped).
+  Special monster traits: `Poison` (spider), `StealGold` + `PrefersHeroes` (bandit; stolen gold
+  is returned when it dies).
+- Maps place several dens with `kit:placeDens(specs, opts)`; all activate within a few seconds.
+- Peaceful time: every map starts with `Config.GRACE_PERIOD` seconds (map `GracePeriod`
+  overrides; Green Valley 60) where dens don't spawn or grow; den `FirstSpawnDelay` counts from
+  its end. Scripted attacks should wait for `ctx:graceRemaining()`. The `Grace` attribute drives
+  the HUD countdown.
+- Tavern: wounded heroes with gold rest there (`Kingdom:restAtTavern`), paying
+  `TAVERN_GOLD_PER_SECOND`; the kingdom keeps the tavern's `Tax` %.
+- Hero AI priorities (`Units.updateHero`): potion → retreat (tavern/castle) → healer duty →
+  self-defense → bounties → shopping (`Kingdom:findShopping` / `buyFrom`: Marketplace potions,
+  Blacksmith gear tiers ≤ its `GearTier`; kingdom keeps `SHOP_TAX` %) → nearby enemies → wander.
+  `hero.state` is mirrored to the `State` model attribute (shown in the panel).
+- More classes: Rogue (GreedBias, flees at 50%; Backstab, Vanish), Healer (`Heal`, follows the
+  most wounded hero; Greater Heal, Blessing), Necromancer (`Raise`: dying monsters near it may
+  become `Minion` servants, category "Minion", side Kingdom, expire; Bone Army, Life Drain).
+  Ranged heroes/monsters with `Projectile` use the client `Bolt` effect; healing uses `Heal`.
+- Monsters: Goblin Shaman (`HealsAllies`), Skeleton, Harpy (`Flying`: ignores obstacles, hovers),
+  bosses (`Boss`, `Scale`, `Radius`, `GuardRadius` → stays near `home`). Den mound colors come
+  from `Config.DenStyles`. Map generators can stash data in `kit.data`, read with `ctx:getData()`.
+- Income comes from every finished building with `Income` (castle, marketplace).
+- Phase C heroes: Wizard (`Splash`), Barbarian (`Rage`, `NeverRetreats`), Monk (`NoGear`,
+  `Meditate`), Dwarf (`Repair` → `repairTurn`), Guard (`Guard.Leash` → `guardTurn`: patrols its
+  guard house, ignores bounties/shops), Elf, Paladin (`Aura` heal, `UndeadBonus`). Magic heroes
+  (`Magic = true`) get the Library's `MagicBonus`; heroes near a Statue of Valor get its
+  `AuraDamage`; idle heroes train at Training Grounds (`Units.gainExperience`; level-ups use
+  `hero.xp`, kills are just a stat).
+- Generic ability effects (any ability can use them): `DamageTaken`, `DamageMultiplier`,
+  `DamageBonus`, `AttackSpeed`, `HealthBonus`/`SpeedBonus` (applied once), `DodgeChance`
+  (IronBody), Cleave/Whirlwind area, Fireball `SplashBonus`, FrostNova slow, DivineShield.
+- Monster traits: `Regen`, `LifeSteal`, `Charge`, `BuildingDamage`, `IgnoresArmor`,
+  `RangedResist`, `FireAura`, `Flying`, `Summon` (lich; waits for the peaceful time), `Splash`
+  (dragon fire), `Undead`.
+- Server sets Phase "Loading" at the start of `startMap`; the client also re-runs its Playing
+  setup when `MapToken` changes.
+
 ## Building levels
 
 `Config.Buildings[kind].Levels[n]` holds per-level stats (`MaxHealth`, `Income`, `Damage`,

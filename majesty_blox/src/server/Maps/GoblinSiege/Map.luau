@@ -5,14 +5,15 @@
 local Waves = require(script.Parent.Waves)
 
 return {
-	DisplayName = "Goblin Siege",
-	Description = "A goblin warband marches on your castle from every direction. Fortify, hire heroes and hold out until the last wave is broken.",
-	Objective = "Survive the goblin waves",
-	VictoryText = "The warband is broken! Your kingdom stands strong.",
+	DisplayName = "Siege of the Horde",
+	Description = "Every monster clan has united into one great horde marching on your castle from all sides. Hold out until the last wave breaks.",
+	Objective = "Survive the waves of the horde",
+	VictoryText = "The horde is broken! No army dares to march on your kingdom again.",
 
-	Size = Vector2.new(340, 340),
-	StartingGold = 500,
-	BuildRadius = 85,
+	Size = Vector2.new(400, 400),
+	StartingGold = 1500,
+	BuildRadius = 95,
+	GracePeriod = 75, -- extra time to build defenses
 	MaxBuildingLevel = 3,
 
 	generate = function(kit)

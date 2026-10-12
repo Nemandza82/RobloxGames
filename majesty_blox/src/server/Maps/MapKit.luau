@@ -86,6 +86,7 @@ function MapKit.new(seed: number, mapSize: Vector2, themes: { string }?)
 	self.clearCircles = {}
 	self.clearLines = {}
 	self.usedCorners = {}
+	self.data = {} -- anything the map wants to read back in its hooks via ctx:getData()
 	local names = themes or MapKit.THEME_NAMES
 	self.themeName = names[self.rng:NextInteger(1, #names)]
 	self.theme = MapKit.THEMES[self.themeName]
@@ -215,6 +216,40 @@ function MapKit:den(position: Vector3, overrides)
 	table.insert(self.dens, entry)
 	self:keepClear(position, DEN_CLEARANCE)
 	return entry
+end
+
+-- Places several dens at once and keeps an open path from the castle to each.
+-- Dens go into free corners first, the rest anywhere far enough from the castle and from
+-- each other. All of them become active at about the same time.
+--   specs: list of den overrides, e.g. { { Enemy = "Wolf", MaxLevel = 2 }, { Enemy = "Goblin" } }
+--   opts:  minFromCastle (default 120), minFromDens (default 90), pathWidth (default 20),
+--          firstSpawn (default 10 s, counted from the end of the map's peaceful time)
+-- Returns the den positions.
+function MapKit:placeDens(specs, opts)
+	opts = opts or {}
+	local positions = {}
+	for _, spec in specs do
+		local freeCorners = 0
+		for index = 1, 4 do
+			if not self.usedCorners[index] then
+				freeCorners += 1
+			end
+		end
+		local position = self:pickSpot({
+			-- Corners while any are free (a boss lair may already hold one), then the ring
+			region = if freeCorners > 0 then "corner" else "ring",
+			minFromCastle = opts.minFromCastle or 120,
+			minFromDens = opts.minFromDens or 90,
+		})
+		local overrides = table.clone(spec)
+		overrides.DisplayName = overrides.DisplayName or Config.DenNames[spec.Enemy or "Goblin"]
+		-- Staggered by a few seconds only, so pressure comes from several sides at once
+		overrides.FirstSpawnDelay = overrides.FirstSpawnDelay or (opts.firstSpawn or 10) + self.rng:NextNumber(0, 8)
+		self:den(position, overrides)
+		self:keepPathOpen(self.castlePos, position, opts.pathWidth or 20)
+		table.insert(positions, position)
+	end
+	return positions
 end
 
 -- Protected zones
@@ -439,6 +474,7 @@ function MapKit:layout()
 		GroundMaterial = self.theme.GroundMaterial,
 		Theme = self.themeName,
 		Seed = self.seed,
+		Data = self.data,
 	}
 end
 

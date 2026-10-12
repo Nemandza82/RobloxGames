@@ -1,23 +1,25 @@
--- Map 1: tutorial. One goblin den hidden in a random corner; random forests, ponds and roads.
--- Teaches: build a guild, recruit, explore with a flag, then put a bounty on the den.
+-- Map 1: tutorial. Two goblin dens hidden in random corners; random forests, ponds and roads.
+-- Unlocks the Warrior Guild. Teaches: build a guild, recruit, explore with a flag, place bounties.
 -- The layout is generated fresh every start (see generate and server/Maps/MapKit.luau).
 
 return {
 	DisplayName = "Green Valley",
-	Description = "Your first castle stands in a quiet valley, but goblins are raiding from somewhere in the wilds. Find their den and drive them out.",
-	Objective = "Find and destroy the goblin den",
+	Description = "Your first castle stands in a quiet valley, but goblins are raiding from somewhere in the wilds. Find their dens and drive them out.",
+	Objective = "Find and destroy the goblin dens",
 	VictoryText = "The valley is safe. Word of your kingdom spreads...",
+	Unlocks = { Building = "WarriorGuild", Enemy = "Goblin" },
 
 	Size = Vector2.new(300, 300),
 	StartingGold = 350,
 	MaxBuildingLevel = 2, -- one upgrade per building: introduces upgrades without outgrowing the map
+	GracePeriod = 60, -- the tutorial gives a bit more peaceful time
 
 	generate = function(kit)
-		local den = kit:pickSpot({ region = "corner", minFromCastle = 120 })
-		kit:den(den, { FirstSpawnDelay = 35, SpawnInterval = 14, MaxAlive = 4, MaxHealth = 300 })
-
 		kit:keepClear(Vector3.zero, 78) -- castle and build area
-		kit:keepPathOpen(Vector3.zero, den, 20)
+		kit:placeDens({
+			{ Enemy = "Goblin", SpawnInterval = 15, MaxAlive = 3, MaxHealth = 300 },
+			{ Enemy = "Goblin", SpawnInterval = 15, MaxAlive = 3, MaxHealth = 300 },
+		}, { minFromCastle = 110, firstSpawn = 12 })
 
 		kit:randomRoads({ 2, 3 })
 		kit:randomPatches({ 3, 5 })
@@ -46,7 +48,7 @@ return {
 		if not ctx.state.exploreTip then
 			ctx.state.exploreTip = true
 			ctx:after(4, function()
-				ctx:notify("The den is hidden in the fog. Place an Explore flag to send heroes scouting!")
+				ctx:notify("The dens are hidden in the fog. Place an Explore flag to send heroes scouting!")
 			end)
 		end
 	end,

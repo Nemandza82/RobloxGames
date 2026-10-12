@@ -234,7 +234,9 @@ function Selection:select(model: Model?)
 	end
 
 	local kind = model:GetAttribute("Kind")
-	for index, actionId in Actions.forKind(kind) do
+	-- Friendly servants share a kind with monsters but have no actions
+	local actions = if model:GetAttribute("Minion") then {} else Actions.forKind(kind)
+	for index, actionId in actions do
 		local def = Config.Actions[actionId]
 		local button = make("TextButton", {
 			LayoutOrder = index,
@@ -300,8 +302,44 @@ local function describe(model: Model, kind: string): (string, string)
 			"Your seat of power. Earns %d gold per second.\nIf it falls, the battle is lost.",
 			model:GetAttribute("Income") or 0
 		)
-	elseif kind == "WarriorGuild" then
-		return levelText, string.format("Warriors: %d/%d", model:GetAttribute("Heroes") or 0, model:GetAttribute("HeroCapacity") or 0)
+	elseif Config.Buildings[kind] and Config.Buildings[kind].Recruits then
+		-- A hero guild: heroes housed and the abilities its level grants
+		local hero = Config.Heroes[Config.Buildings[kind].Recruits]
+		local lines = { string.format("%ss: %d/%d", hero.DisplayName, model:GetAttribute("Heroes") or 0, model:GetAttribute("HeroCapacity") or 0) }
+		for _, ability in BuildingStats.abilities(kind, model:GetAttribute("Level") or 1) do
+			local def = Config.Abilities[ability]
+			table.insert(lines, string.format('<font color="#9FD8FF">%s</font>: %s', def.DisplayName, def.Description))
+		end
+		return levelText, table.concat(lines, "\n")
+	elseif kind == "Marketplace" then
+		return levelText, string.format(
+			"Earns %d gold per second. Heroes buy healing potions here.\nPotions heal %d",
+			model:GetAttribute("Income") or 0,
+			model:GetAttribute("PotionHeal") or 0
+		)
+	elseif kind == "Blacksmith" then
+		local tier = model:GetAttribute("GearTier") or 1
+		return levelText, string.format(
+			"Heroes buy weapons and armor here.\nAvailable: %s, %s",
+			Config.Gear.Weapon[tier].Name,
+			Config.Gear.Armor[tier].Name
+		)
+	elseif kind == "Library" then
+		return levelText, string.format("Magic heroes deal and heal %d%% more.", model:GetAttribute("MagicBonus") or 0)
+	elseif kind == "TrainingGrounds" then
+		return levelText, string.format("Idle heroes train here: 1 experience every %ds.", model:GetAttribute("TrainSeconds") or 0)
+	elseif kind == "StatueOfValor" then
+		return levelText, string.format(
+			"Heroes within %d deal %d%% more damage.",
+			model:GetAttribute("AuraRange") or 0,
+			model:GetAttribute("AuraDamage") or 0
+		)
+	elseif kind == "Tavern" then
+		return levelText, string.format(
+			"Wounded heroes with gold rest here.\nHealing %d/s  ·  Tax %d%%",
+			model:GetAttribute("HealRate") or 0,
+			model:GetAttribute("Tax") or 0
+		)
 	elseif kind == "GuardTower" then
 		return levelText, string.format(
 			"Shoots nearby enemies.\nDamage %d  ·  Range %d",
@@ -309,19 +347,39 @@ local function describe(model: Model, kind: string): (string, string)
 			model:GetAttribute("Range") or 0
 		)
 	elseif Config.Heroes[kind] then
-		return "Hero  ·  " .. Config.Heroes[kind].DisplayName, string.format(
+		local info = string.format(
 			"Level %d  ·  Kills %d  ·  Damage %d\nCarrying %dg",
 			model:GetAttribute("Level") or 1,
 			model:GetAttribute("Kills") or 0,
 			model:GetAttribute("Damage") or 0,
 			model:GetAttribute("Gold") or 0
 		)
+		local state = model:GetAttribute("State")
+		if state then
+			info = string.format("Status: %s\n", state) .. info
+		end
+		local gear = model:GetAttribute("Gear")
+		if gear and gear ~= "" then
+			info ..= "\nGear: " .. gear
+		end
+		local potions = model:GetAttribute("Potions") or 0
+		if potions > 0 then
+			info ..= string.format("\nPotions: %d", potions)
+		end
+		local abilities = model:GetAttribute("Abilities")
+		if abilities and abilities ~= "" then
+			info ..= string.format('\n<font color="#9FD8FF">%s</font>', abilities)
+		end
+		return "Hero  ·  " .. Config.Heroes[kind].DisplayName, info
+	elseif model:GetAttribute("Minion") then
+		return "Undead servant", "Raised by a necromancer. Crumbles after a while."
 	elseif kind == "ExploreFlag" then
 		return "Flag", string.format('Heroes who reach this spot earn the reward.\n<font color="#FFD250">Reward: %dg</font>', bounty)
 	elseif kind == "Den" then
 		return "Enemy lair", "Spawns monsters until destroyed.\n" .. bountyLine
 	elseif Config.Enemies[kind] then
-		return "Enemy", bountyLine
+		return string.format("Enemy  ·  Level %d", model:GetAttribute("Level") or 1),
+			string.format("Damage %d\n%s", model:GetAttribute("Damage") or 0, bountyLine)
 	end
 	return "", ""
 end
@@ -349,7 +407,7 @@ function Selection:_refresh()
 	end
 
 	-- Range ring follows the building's current (level-dependent) range
-	local range = if Config.Buildings[kind] then model:GetAttribute("Range") else nil
+	local range = if Config.Buildings[kind] then model:GetAttribute("Range") or model:GetAttribute("AuraRange") else nil
 	if range and model.PrimaryPart then
 		local base = model.PrimaryPart.Position
 		self.rangeRing:show(Vector3.new(base.X, base.Y - model.PrimaryPart.Size.Y / 2, base.Z), range)
@@ -371,9 +429,16 @@ function Selection:_refresh()
 		local cost = if def.VariableCost then self:getRewardAmount() else def.Cost
 		local blockedReason = nil
 
+		if def.HeroCost then
+			local hero = Config.Heroes[Config.Buildings[kind].Recruits]
+			title = "Recruit " .. hero.DisplayName
+			description = hero.Description
+			cost = hero.Cost
+		end
+
 		if model:GetAttribute("Construction") then
 			blockedReason = "Building..."
-		elseif entry.actionId == "RecruitWarrior" and (model:GetAttribute("Heroes") or 0) >= (model:GetAttribute("HeroCapacity") or 0) then
+		elseif def.HeroCost and (model:GetAttribute("Heroes") or 0) >= (model:GetAttribute("HeroCapacity") or 0) then
 			blockedReason = "Guild full"
 		elseif def.LevelCost then
 			local level = model:GetAttribute("Level") or 1

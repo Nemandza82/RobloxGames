@@ -10,8 +10,28 @@ BuildingStats.LEVEL_STATS = {
 	{ key = "Income", label = "Income", suffix = "/s" },
 	{ key = "Damage", label = "Damage" },
 	{ key = "Range", label = "Range" },
-	{ key = "HeroCapacity", label = "Warriors" },
+	{ key = "HeroCapacity", label = "Heroes" },
+	{ key = "HealRate", label = "Healing", suffix = "/s" },
+	{ key = "Tax", label = "Tax", suffix = "%" },
+	{ key = "PotionHeal", label = "Potion heal" },
+	{ key = "GearTier", label = "Gear tier" },
+	{ key = "MagicBonus", label = "Magic bonus", suffix = "%" },
+	{ key = "TrainSeconds", label = "Training time", suffix = "s" },
+	{ key = "AuraDamage", label = "Aura damage", suffix = "%" },
+	{ key = "AuraRange", label = "Aura range" },
 }
+
+-- Abilities a guild at `level` grants its heroes (all levels up to and including it).
+function BuildingStats.abilities(kind: string, level: number): { string }
+	local list = {}
+	local levels = Config.Buildings[kind].Levels or {}
+	for i = 1, math.min(level, #levels) do
+		if levels[i].Ability then
+			table.insert(list, levels[i].Ability)
+		end
+	end
+	return list
+end
 
 -- The building definition with the given level's values merged over it.
 function BuildingStats.get(kind: string, level: number)
@@ -50,7 +70,14 @@ function BuildingStats.describeUpgrade(kind: string, level: number): string
 			table.insert(parts, string.format("%s %d→%d%s", stat.label, before, after, stat.suffix or ""))
 		end
 	end
-	return table.concat(parts, ", ")
+	local text = table.concat(parts, ", ")
+	local levels = Config.Buildings[kind].Levels
+	local ability = levels and levels[level + 1] and levels[level + 1].Ability
+	if ability then
+		local def = Config.Abilities[ability]
+		text ..= string.format("\nUnlocks %s: %s", def.DisplayName, def.Description)
+	end
+	return text
 end
 
 return BuildingStats
