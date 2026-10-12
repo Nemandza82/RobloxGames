@@ -234,7 +234,9 @@ function buildingBuilders.Den(model: Model, cf: CFrame, size: Vector3)
 	end
 end
 
-function buildingBuilders.Tree(model: Model, cf: CFrame)
+-- options.Leaves: foliage color from the map theme
+function buildingBuilders.Tree(model: Model, cf: CFrame, _size: Vector3, options)
+	local leaves = options.Leaves or Color3.fromRGB(55, 120, 45)
 	newPart(model, {
 		Name = "Trunk",
 		Size = Vector3.new(1.5, 6, 1.5),
@@ -247,7 +249,7 @@ function buildingBuilders.Tree(model: Model, cf: CFrame)
 		Shape = Enum.PartType.Ball,
 		Size = Vector3.new(7, 7, 7),
 		CFrame = cf * CFrame.new(0, 8, 0),
-		Color = Color3.fromRGB(55, 120, 45),
+		Color = leaves,
 		Material = Enum.Material.Grass,
 	})
 	newPart(model, {
@@ -255,7 +257,7 @@ function buildingBuilders.Tree(model: Model, cf: CFrame)
 		Shape = Enum.PartType.Ball,
 		Size = Vector3.new(5, 5, 5),
 		CFrame = cf * CFrame.new(0.5, 11, -0.5),
-		Color = Color3.fromRGB(65, 135, 50),
+		Color = leaves:Lerp(Color3.new(1, 1, 1), 0.08),
 		Material = Enum.Material.Grass,
 	})
 end
@@ -277,7 +279,7 @@ function buildingBuilders.Rock(model: Model, cf: CFrame, size: Vector3)
 	})
 end
 
-function buildingBuilders.Pine(model: Model, cf: CFrame)
+function buildingBuilders.Pine(model: Model, cf: CFrame, _size: Vector3, options)
 	newPart(model, {
 		Name = "Trunk",
 		Size = Vector3.new(1.2, 5, 1.2),
@@ -286,7 +288,7 @@ function buildingBuilders.Pine(model: Model, cf: CFrame)
 		Material = Enum.Material.Wood,
 	})
 	-- Stacked, shrinking, rotated layers read as a conifer from above
-	local green = Color3.fromRGB(35, 95, 55)
+	local green = options.Leaves or Color3.fromRGB(35, 95, 55)
 	for i, layer in { { 6, 4 }, { 4.6, 8 }, { 3.2, 11.5 }, { 1.8, 14.5 } } do
 		newPart(model, {
 			Name = "Needles",
@@ -346,7 +348,8 @@ function buildingBuilders.Ruins(model: Model, cf: CFrame, size: Vector3)
 end
 
 -- Builds a building, den or obstacle with its footprint centered on cf (ground level).
-function Models.makeBuilding(kind: string, cf: CFrame): Model
+-- options: builder-specific extras (e.g. { Leaves = Color3 } for trees)
+function Models.makeBuilding(kind: string, cf: CFrame, options): Model
 	local size = BuildRules.footprint(kind)
 	local model = Instance.new("Model")
 	model.Name = kind
@@ -360,7 +363,7 @@ function Models.makeBuilding(kind: string, cf: CFrame): Model
 		Transparency = if Config.Obstacles[kind] then 1 else 0,
 	})
 	model.PrimaryPart = base
-	buildingBuilders[kind](model, cf, size)
+	buildingBuilders[kind](model, cf, size, options or {})
 	model:SetAttribute("Kind", kind)
 	return model
 end
@@ -559,7 +562,7 @@ function decorBuilders.Bush(entry, parent: Instance)
 		Shape = Enum.PartType.Ball,
 		Size = Vector3.one * 2.6 * scale,
 		CFrame = CFrame.new(entry.Position + Vector3.new(0, 0.9 * scale, 0)),
-		Color = Color3.fromRGB(60, 125, 50),
+		Color = entry.Color or Color3.fromRGB(60, 125, 50),
 		Material = Enum.Material.Grass,
 		CanQuery = false,
 	})

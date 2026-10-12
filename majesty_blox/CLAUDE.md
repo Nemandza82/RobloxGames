@@ -62,11 +62,25 @@ Default victory: all dens destroyed; defeat: castle destroyed. To add a map: cre
 and add its id to `Campaign.luau`. Max map size is `Config.MAX_MAP_SIZE` (plots are
 `Config.PLOT_SPACING` apart).
 
-`Maps/MapKit.luau` builds layouts (seeded): `keepClear` / `keepClearLine` keep the build area
-and paths to dens open, then `forest`, `cluster`, `line`, `add` (obstacles: Tree, Pine, Rock,
-Pond, Ruins) and `road`, `patch`, `scatter`, `decorate` (decor: Road, Patch, Bush, Flowers).
+### Random layouts
+
+Every map has `generate(kit)` and gets a **new random layout every start** (including Try
+Again). `PlayerSession` picks the seed (`MapSeed` attribute; in Studio set the Workspace
+attribute `DevSeed` to repeat a layout), `Kingdom.new` runs `generate` with a `MapKit` and uses
+`kit:layout()` (castle, dens, obstacles, decor, theme ground). Static `Dens`/`Obstacles`/`Decor`
+lists on a map still work if it has no `generate`.
+
+`Maps/MapKit.luau`: place important things first, then protect, then fill:
+- `pickSpot({ region = "corner"|"edge"|"ring"|"any", minFromCastle, maxFromCastle, minFromDens,
+  margin, spread })` (corners are used once each), `den(pos, overrides)`, `castle(pos)`
+- `keepClear`, `keepPathOpen` — protected zones (build area, corridors to dens)
+- `randomForests`, `scatterObstacles`, `scatterClusters`, `randomRoads`, `randomPatches`,
+  `scatter` (ranges like `{ 2, 4 }`), plus the manual `add`, `cluster`, `forest`, `line`, `road`, `patch`
+- Themes (`MapKit.THEMES`: Spring, Autumn, Summer, Winter) color the ground, patches, foliage and
+  bushes and scale flowers; a map can limit them with `Themes = { ... }`.
 Decor is visual only (no collision); obstacles block movement and building.
 Den entries can set `Enemy` (Goblin, Wolf), `DisplayName`, spawn values and `Discovered = true`.
+Goblin Siege waves come from 1–2 random sides, announced when scheduled and 10 s before.
 
 ## Fog of war & exploring
 

@@ -101,6 +101,13 @@ function PlayerSession:startMap(index: number): (boolean, string)
 	player:SetAttribute("Objective", map.Objective or "")
 	player:SetAttribute("PlotSize", map.Size)
 
+	-- A new random layout every start (Studio: set the DevSeed attribute on Workspace to repeat one)
+	local seed = Random.new():NextInteger(1, 2 ^ 31 - 1)
+	if RunService:IsStudio() and typeof(Workspace:GetAttribute("DevSeed")) == "number" then
+		seed = Workspace:GetAttribute("DevSeed")
+	end
+	player:SetAttribute("MapSeed", seed)
+
 	self.kingdom = Kingdom.new(player, self.folder, self.origin, map, {
 		notify = function(text)
 			self.messaging.notify(player, text)
@@ -114,7 +121,7 @@ function PlayerSession:startMap(index: number): (boolean, string)
 		onFinished = function(result, text)
 			self:_onFinished(result, text)
 		end,
-	})
+	}, seed)
 	-- Phase last: the client reads the other attributes when the phase changes
 	player:SetAttribute("Phase", "Playing")
 	return true, map.DisplayName

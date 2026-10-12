@@ -11,6 +11,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local ActionHandlers = require(script.Parent.ActionHandlers)
 local FogOfWar = require(script.Parent.FogOfWar)
 local MapContext = require(script.Parent.MapContext)
+local MapKit = require(script.Parent.Maps.MapKit)
 local Models = require(script.Parent.Models)
 local Units = require(script.Parent.Units)
 
@@ -45,7 +46,8 @@ end
 -- callbacks.effect(kind, ...) plays a client-side visual effect (see client/Effects.luau)
 -- callbacks.fog(cells) sends newly explored fog cells to the client
 -- callbacks.onFinished(result, text) is called once with "Victory" or "Defeat"
-function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callbacks)
+-- seed: random seed for maps with a generate(kit) function (a new layout every start)
+function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callbacks, seed: number)
 	local self = setmetatable({}, Kingdom)
 	self.player = player
 	self.folder = folder
@@ -53,6 +55,19 @@ function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callb
 	self.map = map
 	self.size = map.Size
 	self.callbacks = callbacks
+
+	-- Layout: generated from the seed, or the map's fixed lists
+	local layout = map
+	if map.generate then
+		local kit = MapKit.new(seed, map.Size, map.Themes)
+		local ok, err = pcall(map.generate, kit)
+		if not ok then
+			warn(string.format("[Map %s] generate failed: %s", tostring(map.Id), tostring(err)))
+		end
+		layout = kit:layout()
+		print(string.format("[Map %s] seed %d, theme %s", tostring(map.Id), seed, layout.Theme))
+	end
+	self.layout = layout
 	self.buildRadius = map.BuildRadius or Config.BUILD_RADIUS
 	self.maxBuildingLevel = map.MaxBuildingLevel or Config.DEFAULT_MAX_BUILDING_LEVEL
 
@@ -83,26 +98,26 @@ function Kingdom.new(player: Player, folder: Folder, origin: Vector3, map, callb
 	ground.Anchored = true
 	ground.Size = Vector3.new(self.size.X, 1, self.size.Y)
 	ground.CFrame = CFrame.new(origin + Vector3.new(0, -0.45, 0))
-	ground.Color = map.GroundColor or Color3.fromRGB(90, 150, 70)
-	ground.Material = map.GroundMaterial or Enum.Material.Grass
+	ground.Color = layout.GroundColor or Color3.fromRGB(90, 150, 70)
+	ground.Material = layout.GroundMaterial or Enum.Material.Grass
 	ground.TopSurface = Enum.SurfaceType.Smooth
 	ground.Parent = folder
 	-- Players have no character, so tell instance streaming to stream around the plot
 	player.ReplicationFocus = ground
 
-	self.castle = self:_addBuilding("Castle", origin + (map.Castle or Vector3.zero))
+	self.castle = self:_addBuilding("Castle", origin + (layout.Castle or Vector3.zero))
 	player:SetAttribute("CastlePos", self.castle.pos)
 	player:SetAttribute("BuildRadius", self.buildRadius)
 	player:SetAttribute("MaxBuildingLevel", self.maxBuildingLevel)
 	player:SetAttribute("FogCellSize", if self.fog then Config.Fog.CellSize else 0)
 
-	for _, den in map.Dens or {} do
+	for _, den in layout.Dens or {} do
 		self:addDen(den)
 	end
-	for _, obstacle in map.Obstacles or {} do
-		self:addObstacle(obstacle.Kind, origin + obstacle.Position)
+	for _, obstacle in layout.Obstacles or {} do
+		self:addObstacle(obstacle.Kind, origin + obstacle.Position, obstacle)
 	end
-	for _, entry in map.Decor or {} do
+	for _, entry in layout.Decor or {} do
 		Models.makeDecor(toWorldDecor(entry, origin), self.decorFolder)
 	end
 
@@ -377,13 +392,14 @@ function Kingdom:addDen(def)
 	return den
 end
 
-function Kingdom:addObstacle(kind: string, position: Vector3)
+-- options: the map's obstacle entry (e.g. Leaves color for trees from the theme)
+function Kingdom:addObstacle(kind: string, position: Vector3, options)
 	local def = Config.Obstacles[kind]
 	if not def then
 		warn("Unknown obstacle kind:", kind)
 		return nil
 	end
-	local model = Models.makeBuilding(kind, CFrame.new(position) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
+	local model = Models.makeBuilding(kind, CFrame.new(position) * CFrame.Angles(0, math.random() * math.pi * 2, 0), options)
 	model.Parent = self.obstaclesFolder
 	return self:_register({
 		kind = kind,
