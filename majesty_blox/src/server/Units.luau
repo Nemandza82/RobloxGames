@@ -13,7 +13,7 @@ local SWING_DURATION = 0.4
 local SWING_IMPACT = 0.55 -- fraction of the swing
 local SWING_RAISED = 85 -- degrees
 local SWING_LOW = -25
-local LUNGE = 0.6 -- studs forward at the middle of the swing
+local LUNGE = 0.6 * Config.UNIT_SCALE -- studs forward at the middle of the swing
 
 local function flat(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
@@ -49,10 +49,14 @@ function Units.place(unit)
 
 	local weapon = unit.weapon
 	if weapon then
-		weapon.part.CFrame = pivot
+		local weaponCf = pivot
 			* CFrame.new(weapon.hand)
 			* CFrame.Angles(math.rad(weaponAngle(weapon, t)), 0, 0)
 			* CFrame.new(weapon.blade)
+		weapon.part.CFrame = weaponCf
+		for _, item in weapon.attached do
+			item.part.CFrame = weaponCf * item.offset
+		end
 	end
 end
 

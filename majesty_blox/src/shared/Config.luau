@@ -3,6 +3,10 @@
 
 local Config = {}
 
+-- Units
+Config.UNIT_SCALE = 1.2 -- size multiplier for hero and monster models
+Config.UNIT_RADIUS = 1.2 -- collision radius used to keep units apart
+
 -- Map
 Config.GRID = 4
 Config.BUILD_GAP = 2

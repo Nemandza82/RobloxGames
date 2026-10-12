@@ -410,7 +410,7 @@ local function newUnit(kind: string, def, position: Vector3)
 		facing = Vector3.new(0, 0, -1),
 		heightOffset = heightOffset,
 		barOffset = barOffset,
-		radius = 1,
+		radius = Config.UNIT_RADIUS,
 		health = def.MaxHealth,
 		maxHealth = def.MaxHealth,
 		damage = def.Damage,

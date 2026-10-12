@@ -33,9 +33,54 @@ local function newPart(parent: Instance, props)
 	return part
 end
 
--- Building builders: cf is the ground-level center of the footprint.
+-- Building builders: cf is the ground-level center of the footprint; the front (+Z) faces the camera.
 
 local buildingBuilders = {}
+
+local FRAME = Color3.fromRGB(70, 48, 32)
+local GLASS = Color3.fromRGB(255, 214, 120) -- warm, lit-from-inside windows
+local DOOR = Color3.fromRGB(95, 65, 40)
+
+-- A framed window on a front (+Z) wall whose surface is at z = wallZ.
+local function frontWindow(model: Model, cf: CFrame, x: number, y: number, wallZ: number, width: number, height: number)
+	newPart(model, {
+		Name = "WindowFrame",
+		Size = Vector3.new(width + 0.4, height + 0.4, 0.2),
+		CFrame = cf * CFrame.new(x, y, wallZ + 0.1),
+		Color = FRAME,
+	})
+	newPart(model, {
+		Name = "WindowGlass",
+		Size = Vector3.new(width, height, 0.1),
+		CFrame = cf * CFrame.new(x, y, wallZ + 0.22),
+		Color = GLASS,
+	})
+end
+
+-- A framed door standing on the ground on a front (+Z) wall whose surface is at z = wallZ.
+local function frontDoor(model: Model, cf: CFrame, wallZ: number, width: number, height: number, frameColor: Color3)
+	newPart(model, {
+		Name = "DoorFrame",
+		Size = Vector3.new(width + 0.6, height + 0.3, 0.2),
+		CFrame = cf * CFrame.new(0, (height + 0.3) / 2, wallZ + 0.1),
+		Color = frameColor,
+	})
+	newPart(model, {
+		Name = "Door",
+		Size = Vector3.new(width, height, 0.2),
+		CFrame = cf * CFrame.new(0, height / 2, wallZ + 0.25),
+		Color = DOOR,
+		Material = Enum.Material.WoodPlanks,
+	})
+	newPart(model, {
+		Name = "Handle",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.one * 0.3,
+		CFrame = cf * CFrame.new(width / 2 - 0.4, height * 0.45, wallZ + 0.4),
+		Color = Color3.fromRGB(225, 185, 60),
+		Material = Enum.Material.Metal,
+	})
+end
 
 function buildingBuilders.Castle(model: Model, cf: CFrame, size: Vector3)
 	newPart(model, {
@@ -81,6 +126,11 @@ function buildingBuilders.Castle(model: Model, cf: CFrame, size: Vector3)
 		CFrame = cf * CFrame.new(0, 21, 1.5),
 		Color = Color3.fromRGB(200, 40, 40),
 	})
+	-- Gate in the front wall and windows on the keep
+	frontDoor(model, cf, size.Z / 2, 4.4, 5.5, Color3.fromRGB(190, 186, 178))
+	for _, x in { -3, 3 } do
+		frontWindow(model, cf, x, 12.5, 6, 1.4, 2)
+	end
 end
 
 function buildingBuilders.WarriorGuild(model: Model, cf: CFrame, size: Vector3)
@@ -103,15 +153,13 @@ function buildingBuilders.WarriorGuild(model: Model, cf: CFrame, size: Vector3)
 		CFrame = cf * CFrame.new(0, 8, 0),
 		Color = ROOF_RED,
 	})
-	newPart(model, {
-		Name = "Door",
-		Size = Vector3.new(4, 4, 0.2),
-		CFrame = cf * CFrame.new(0, 2, size.Z / 2 + 0.1),
-		Color = Color3.fromRGB(50, 35, 25),
-	})
+	frontDoor(model, cf, size.Z / 2, 2.6, 3.8, FRAME)
+	for _, x in { -5, 5 } do
+		frontWindow(model, cf, x, 3.2, size.Z / 2, 1.6, 1.6)
+	end
 	newPart(model, {
 		Name = "Emblem",
-		Size = Vector3.new(3, 3, 0.3),
+		Size = Vector3.new(2.2, 1.6, 0.3),
 		CFrame = cf * CFrame.new(0, 5, size.Z / 2 + 0.2),
 		Color = Color3.fromRGB(45, 90, 200),
 	})
@@ -139,6 +187,17 @@ function buildingBuilders.GuardTower(model: Model, cf: CFrame, size: Vector3)
 			CFrame = cf * CFrame.new(corner[1] * (size.X / 2 - 0.75), 16.25, corner[2] * (size.Z / 2 - 0.75)),
 			Color = STONE,
 			Material = Enum.Material.Cobblestone,
+		})
+	end
+	-- Door and arrow slits on the front of the shaft
+	local wallZ = (size.Z - 2) / 2
+	frontDoor(model, cf, wallZ, 1.8, 3, Color3.fromRGB(190, 186, 178))
+	for _, y in { 7.5, 11.5 } do
+		newPart(model, {
+			Name = "ArrowSlit",
+			Size = Vector3.new(0.5, 1.8, 0.2),
+			CFrame = cf * CFrame.new(0, y, wallZ + 0.1),
+			Color = Color3.fromRGB(28, 26, 30),
 		})
 	end
 end
@@ -439,8 +498,22 @@ function Models.makeUnit(kind: string)
 	model.Name = kind
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	local body, heightOffset, barOffset, weapon = unitBuilders[kind](model)
-	body:SetAttribute("BaseColor", body.Color)
 	model.PrimaryPart = body
+
+	-- Scale around the body center (Config.UNIT_SCALE); offsets measured from it scale the same way
+	local scale = Config.UNIT_SCALE
+	model:ScaleTo(scale)
+	heightOffset *= scale
+	barOffset *= scale
+	weapon.hand *= scale
+	weapon.blade *= scale
+	-- Parts listed in weapon.attach move rigidly with the weapon part (see Units.place)
+	weapon.attached = {}
+	for _, part in weapon.attach or {} do
+		table.insert(weapon.attached, { part = part, offset = weapon.part.CFrame:ToObjectSpace(part.CFrame) })
+	end
+
+	body:SetAttribute("BaseColor", body.Color)
 	model:SetAttribute("Kind", kind)
 	return model, heightOffset, barOffset, weapon
 end
